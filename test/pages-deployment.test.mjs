@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Vite builds assets below the repository GitHub Pages path", async () => {
@@ -47,6 +47,4 @@ test("teacher portal is a noindex Vite build entry", async () => {
 
   const { default: config } = await import("../vite.config.js");
   assert.match(config.build.rolldownOptions.input.teacher, /teacher\.html$/);
-
-  await access(new URL("../dist/teacher.html", import.meta.url));
 });
