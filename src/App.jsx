@@ -11,6 +11,11 @@ import {
   createAttemptGuard,
   validateStudentIdentity,
 } from "./quizDomain";
+import {
+  isAnswerCorrect,
+  prepareQuiz,
+  scoreQuiz,
+} from "./quizRandomization";
 
 /* ---------------------------------------------------------
    資料：第 1 回 第1、2單元 — 細胞與顯微鏡（20題）
@@ -65,6 +70,7 @@ export default function App() {
   const [view, setView] = useState("intro"); // intro | quiz | results
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState({});
+  const [quizQuestions, setQuizQuestions] = useState([]);
   const [progress, setProgress] = useState({});
   const [uid, setUid] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -125,6 +131,13 @@ export default function App() {
         checked.studentCode,
         checked.studentName,
       );
+      let preparedQuestions;
+      try {
+        preparedQuestions = prepareQuiz(QUESTIONS);
+      } catch {
+        setIdentityError("目前沒有可用的題目。");
+        return;
+      }
       setVerifiedIdentity(identity);
       setStudentCode(checked.studentCode);
       setStudentName(checked.studentName);
@@ -132,6 +145,7 @@ export default function App() {
       setSaveError(null);
       setAnswers({});
       setCurrent(0);
+      setQuizQuestions(preparedQuestions);
       setView("quiz");
     } catch {
       setIdentityError("找不到相符的學生資料。");
@@ -145,7 +159,7 @@ export default function App() {
   };
 
   const goNext = () => {
-    if (current < QUESTIONS.length - 1) {
+    if (current < quizQuestions.length - 1) {
       setCurrent((c) => c + 1);
     } else {
       void finishQuiz();
@@ -159,16 +173,14 @@ export default function App() {
   const finishQuiz = async () => {
     if (finishing || !verifiedIdentity || !uid || !runId) return;
 
+    const { correctCount } = scoreQuiz(quizQuestions, answers);
     setFinishing(true);
     setSaveError(null);
     const today = new Date();
-    let correctCount = 0;
     const next = { ...progress };
 
-    QUESTIONS.forEach((q) => {
-      const picked = answers[q.id];
-      const wasCorrect = picked === q.correct;
-      if (wasCorrect) correctCount += 1;
+    quizQuestions.forEach((q) => {
+      const wasCorrect = isAnswerCorrect(q, answers[q.id]);
 
       const prevEntry = next[q.id] || { errorCount: 0, stage: -1 };
       if (wasCorrect) {
@@ -205,7 +217,7 @@ export default function App() {
             quizId: QUIZ_ID,
             quizTitle: QUIZ_TITLE,
             correctCount,
-            totalQuestions: QUESTIONS.length,
+            totalQuestions: quizQuestions.length,
           }),
         ),
       );
@@ -221,18 +233,22 @@ export default function App() {
   const resetProgress = async () => {
     setProgress({});
     setAnswers({});
+    setQuizQuestions([]);
     setLastScore(null);
     await persist({});
     setView("intro");
   };
 
-  const wrongIds = QUESTIONS.filter((q) => answers[q.id] !== q.correct).map((q) => q.id);
+  const { wrongIds } =
+    quizQuestions.length > 0
+      ? scoreQuiz(quizQuestions, answers)
+      : { wrongIds: [] };
 
   const reviewList = Object.entries(progress)
     .filter(([, v]) => v.errorCount > 0)
     .map(([id, v]) => {
       const q = QUESTIONS.find((qq) => qq.id === id);
-      return { id, n: q ? q.n : "?", text: q ? q.text : "", ...v, daysLeft: daysUntil(v.nextReview) };
+      return { id, text: q ? q.text : "", ...v, daysLeft: daysUntil(v.nextReview) };
     })
     .sort((a, b) => new Date(a.nextReview) - new Date(b.nextReview));
 
@@ -323,11 +339,11 @@ export default function App() {
 
           {view === "quiz" && (
             <QuizView
-              question={QUESTIONS[current]}
+              question={quizQuestions[current]}
               index={current}
-              total={QUESTIONS.length}
-              selected={answers[QUESTIONS[current].id]}
-              onSelect={(idx) => selectOption(QUESTIONS[current].id, idx)}
+              total={quizQuestions.length}
+              selected={answers[quizQuestions[current].id]}
+              onSelect={(idx) => selectOption(quizQuestions[current].id, idx)}
               onNext={goNext}
               onPrev={goPrev}
               finishing={finishing}
@@ -343,6 +359,7 @@ export default function App() {
             <ResultsView
               score={lastScore}
               studentName={verifiedIdentity?.studentName}
+              questions={quizQuestions}
               wrongIds={wrongIds}
               answers={answers}
               reviewList={reviewList}
@@ -489,7 +506,7 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
       </div>
 
       <p style={{ ...monoStyle, color: GREEN }} className="text-xs tracking-widest mb-2">
-        第 {question.n} 題 ／ 共 {total} 題
+        第 {index + 1} 題 ／ 共 {total} 題
       </p>
       <p style={{ color: INKDARK }} className="text-base leading-relaxed mb-5 font-medium">
         {question.text}
@@ -515,7 +532,7 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
                 {LETTERS[idx]}
               </span>
               <span style={{ color: INKDARK }} className="text-sm leading-relaxed pt-0.5">
-                {opt}
+                {opt.text}
               </span>
             </button>
           );
@@ -537,8 +554,10 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, studentName, wrongIds, answers, reviewList, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
-  const wrongQuestions = QUESTIONS.filter((q) => wrongIds.includes(q.id));
+function ResultsView({ score, studentName, questions, wrongIds, answers, reviewList, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+  const wrongQuestions = questions.filter((q) => wrongIds.includes(q.id));
+  const attemptPosition = (questionId) =>
+    questions.findIndex(({ id }) => id === questionId) + 1;
 
   return (
     <div>
@@ -573,7 +592,7 @@ function ResultsView({ score, studentName, wrongIds, answers, reviewList, onRetr
             {wrongQuestions.map((q) => (
               <div key={q.id} className="rounded border px-4 py-3" style={{ borderColor: "#E3B0A8", background: "rgba(178,58,46,0.05)" }}>
                 <p style={{ ...monoStyle, color: RED }} className="text-[11px] mb-1">
-                  第 {q.n} 題 ・ 累計錯誤 {reviewList.find((r) => r.id === q.id)?.errorCount || 1} 次
+                  本次第 {attemptPosition(q.id)} 題 ・ 累計錯誤 {reviewList.find((r) => r.id === q.id)?.errorCount || 1} 次
                 </p>
                 <p style={{ color: INKDARK }} className="text-sm mb-2">
                   {q.text}
@@ -582,14 +601,17 @@ function ResultsView({ score, studentName, wrongIds, answers, reviewList, onRetr
                   你的答案：
                   <span style={{ color: RED }} className="font-bold">
                     {" "}
-                    {answers[q.id] !== undefined ? `(${LETTERS[answers[q.id]]}) ${q.options[answers[q.id]]}` : "未作答"}
+                    {answers[q.id] !== undefined ? `(${LETTERS[answers[q.id]]}) ${q.options[answers[q.id]].text}` : "未作答"}
                   </span>
                 </p>
                 <p style={{ color: INKDARK }} className="text-xs mt-0.5">
                   正確答案：
                   <span style={{ color: GREEN }} className="font-bold">
                     {" "}
-                    ({LETTERS[q.correct]}) {q.options[q.correct]}
+                    {(() => {
+                      const correctIndex = q.options.findIndex(({ isCorrect }) => isCorrect);
+                      return `(${LETTERS[correctIndex]}) ${q.options[correctIndex].text}`;
+                    })()}
                   </span>
                 </p>
               </div>
@@ -613,7 +635,7 @@ function ResultsView({ score, studentName, wrongIds, answers, reviewList, onRetr
               <div key={r.id} className="flex items-center justify-between px-3 py-2 rounded" style={{ background: "white", border: "1px solid #DCD4BC" }}>
                 <div className="min-w-0 pr-3">
                   <p style={{ color: INKDARK }} className="text-xs truncate">
-                    第 {r.n} 題
+                    {r.text}
                   </p>
                   <p style={{ ...monoStyle, color: "#8a8272" }} className="text-[10px]">
                     錯 {r.errorCount} 次 ・ 第 {r.stage + 1} 階段（間隔 {INTERVALS[r.stage]} 天）
