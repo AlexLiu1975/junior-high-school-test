@@ -45,3 +45,14 @@ export function buildAttemptRecord({
     wrongCount: totalQuestions - correctCount,
   };
 }
+
+export function createAttemptGuard() {
+  const claimed = new Set();
+  return {
+    claim(runId) {
+      if (claimed.has(runId)) return false;
+      claimed.add(runId);
+      return true;
+    },
+  };
+}

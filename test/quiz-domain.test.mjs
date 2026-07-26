@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAttemptRecord,
+  createAttemptGuard,
   normalizeStudentCode,
   validateStudentIdentity,
 } from "../src/quizDomain.js";
@@ -60,4 +61,11 @@ test("builds a bounded attempt record", () => {
       wrongCount: 4,
     },
   );
+});
+
+test("attempt guard allows one write per completed run", () => {
+  const guard = createAttemptGuard();
+  assert.equal(guard.claim("run-1"), true);
+  assert.equal(guard.claim("run-1"), false);
+  assert.equal(guard.claim("run-2"), true);
 });

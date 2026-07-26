@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ensureSignedIn, loadProgress, saveProgress } from "./firebase";
+import {
+  ensureSignedIn,
+  loadProgress,
+  saveProgress,
+  saveQuizAttempt,
+  validateStudentEntry,
+} from "./firebase";
+import {
+  buildAttemptRecord,
+  createAttemptGuard,
+  validateStudentIdentity,
+} from "./quizDomain";
 
 /* ---------------------------------------------------------
    資料：第 1 回 第1、2單元 — 細胞與顯微鏡（20題）
@@ -30,6 +41,8 @@ const QUESTIONS = [
 const LETTERS = ["A", "B", "C", "D"];
 const INTERVALS = [1, 2, 4, 7, 15, 30]; // 艾賓浩斯簡化複習間隔（天）
 const QUIZ_ID = "cell-microscope-quiz1";
+const QUIZ_TITLE = "第1回 第1、2單元｜細胞與顯微鏡";
+const attemptGuard = createAttemptGuard();
 
 const fmtDate = (d) =>
   `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
@@ -58,6 +71,14 @@ export default function App() {
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [lastScore, setLastScore] = useState(null);
+  const [studentCode, setStudentCode] = useState("");
+  const [studentName, setStudentName] = useState("");
+  const [verifiedIdentity, setVerifiedIdentity] = useState(null);
+  const [identityError, setIdentityError] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [runId, setRunId] = useState(null);
+  const [finishing, setFinishing] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -90,10 +111,33 @@ export default function App() {
     [uid]
   );
 
-  const startQuiz = () => {
-    setAnswers({});
-    setCurrent(0);
-    setView("quiz");
+  const startQuiz = async () => {
+    const checked = validateStudentIdentity({ studentName, studentCode });
+    if (!checked.valid) {
+      setIdentityError(checked.error);
+      return;
+    }
+
+    setStarting(true);
+    setIdentityError(null);
+    try {
+      const identity = await validateStudentEntry(
+        checked.studentCode,
+        checked.studentName,
+      );
+      setVerifiedIdentity(identity);
+      setStudentCode(checked.studentCode);
+      setStudentName(checked.studentName);
+      setRunId(crypto.randomUUID());
+      setSaveError(null);
+      setAnswers({});
+      setCurrent(0);
+      setView("quiz");
+    } catch {
+      setIdentityError("找不到相符的學生資料。");
+    } finally {
+      setStarting(false);
+    }
   };
 
   const selectOption = (qid, idx) => {
@@ -104,7 +148,7 @@ export default function App() {
     if (current < QUESTIONS.length - 1) {
       setCurrent((c) => c + 1);
     } else {
-      finishQuiz();
+      void finishQuiz();
     }
   };
 
@@ -112,7 +156,11 @@ export default function App() {
     if (current > 0) setCurrent((c) => c - 1);
   };
 
-  const finishQuiz = () => {
+  const finishQuiz = async () => {
+    if (finishing || !verifiedIdentity || !uid || !runId) return;
+
+    setFinishing(true);
+    setSaveError(null);
     const today = new Date();
     let correctCount = 0;
     const next = { ...progress };
@@ -144,9 +192,30 @@ export default function App() {
     });
 
     setProgress(next);
-    persist(next);
     setLastScore(correctCount);
     setView("results");
+
+    const writes = [persist(next)];
+    if (attemptGuard.claim(runId)) {
+      writes.push(
+        saveQuizAttempt(
+          buildAttemptRecord({
+            identity: verifiedIdentity,
+            uid,
+            quizId: QUIZ_ID,
+            quizTitle: QUIZ_TITLE,
+            correctCount,
+            totalQuestions: QUESTIONS.length,
+          }),
+        ),
+      );
+    }
+
+    const results = await Promise.allSettled(writes);
+    if (results.some((result) => result.status === "rejected")) {
+      setSaveError("部分作答紀錄未能儲存，請檢查網路後重新整理。");
+    }
+    setFinishing(false);
   };
 
   const resetProgress = async () => {
@@ -226,10 +295,21 @@ export default function App() {
               {loadError}
             </div>
           )}
+          {saveError && (
+            <div className="mb-5 rounded px-4 py-3 text-sm" style={{ background: "rgba(178,58,46,0.08)", border: "1px solid #E3B0A8", color: RED }}>
+              {saveError}
+            </div>
+          )}
 
           {view === "intro" && (
             <IntroView
               onStart={startQuiz}
+              studentCode={studentCode}
+              studentName={studentName}
+              onStudentCodeChange={setStudentCode}
+              onStudentNameChange={setStudentName}
+              identityError={identityError}
+              starting={starting}
               progress={progress}
               reviewCount={reviewList.filter((r) => r.daysLeft <= 0).length}
               serifStyle={serifStyle}
@@ -250,6 +330,7 @@ export default function App() {
               onSelect={(idx) => selectOption(QUESTIONS[current].id, idx)}
               onNext={goNext}
               onPrev={goPrev}
+              finishing={finishing}
               serifStyle={serifStyle}
               monoStyle={monoStyle}
               INK={INK}
@@ -261,6 +342,7 @@ export default function App() {
           {view === "results" && (
             <ResultsView
               score={lastScore}
+              studentName={verifiedIdentity?.studentName}
               wrongIds={wrongIds}
               answers={answers}
               reviewList={reviewList}
@@ -287,7 +369,23 @@ export default function App() {
 /* ---------------------------------------------------------
    Intro
 --------------------------------------------------------- */
-function IntroView({ onStart, progress, reviewCount, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+function IntroView({
+  onStart,
+  studentCode,
+  studentName,
+  onStudentCodeChange,
+  onStudentNameChange,
+  identityError,
+  starting,
+  progress,
+  reviewCount,
+  serifStyle,
+  monoStyle,
+  INK,
+  RED,
+  GREEN,
+  INKDARK,
+}) {
   const attempted = Object.keys(progress).length;
   const totalErrors = Object.values(progress).reduce((s, v) => s + (v.errorCount || 0), 0);
 
@@ -297,6 +395,43 @@ function IntroView({ onStart, progress, reviewCount, serifStyle, monoStyle, INK,
         共 20 題，每題 5 分，作答結束後會標示錯題並記錄錯誤次數，並依艾賓浩斯遺忘曲線安排下次複習時間。
       </p>
 
+      <div className="space-y-3 mb-5">
+        <label className="block">
+          <span style={{ color: INKDARK }} className="block text-sm font-bold mb-1">
+            學生專屬代碼
+          </span>
+          <input
+            value={studentCode}
+            onChange={(event) => onStudentCodeChange(event.target.value)}
+            placeholder="例如：20260726-001"
+            autoComplete="off"
+            className="w-full rounded border bg-white px-3 py-2.5 text-sm"
+            style={{ borderColor: "#C9BFA8", color: INKDARK }}
+          />
+        </label>
+        <label className="block">
+          <span style={{ color: INKDARK }} className="block text-sm font-bold mb-1">
+            測試人姓名
+          </span>
+          <input
+            value={studentName}
+            onChange={(event) => onStudentNameChange(event.target.value)}
+            maxLength={40}
+            autoComplete="name"
+            className="w-full rounded border bg-white px-3 py-2.5 text-sm"
+            style={{ borderColor: "#C9BFA8", color: INKDARK }}
+          />
+        </label>
+        <p style={{ color: "#6f675b" }} className="text-xs">
+          姓名與專屬代碼只用於辨識本次測驗及保存歷次成績。
+        </p>
+        {identityError && (
+          <p role="alert" style={{ color: RED }} className="text-sm">
+            {identityError}
+          </p>
+        )}
+      </div>
+
       {attempted > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatBox label="已作答題數" value={attempted} INK={INK} INKDARK={INKDARK} monoStyle={monoStyle} />
@@ -305,8 +440,13 @@ function IntroView({ onStart, progress, reviewCount, serifStyle, monoStyle, INK,
         </div>
       )}
 
-      <button onClick={onStart} style={{ background: INK, ...serifStyle }} className="w-full py-3.5 rounded text-white font-bold text-base hover:opacity-90 transition">
-        {attempted > 0 ? "重新測驗" : "開始測驗"}
+      <button
+        onClick={onStart}
+        disabled={starting}
+        style={{ background: INK, ...serifStyle }}
+        className="w-full py-3.5 rounded text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50"
+      >
+        {starting ? "驗證中…" : attempted > 0 ? "重新測驗" : "開始測驗"}
       </button>
     </div>
   );
@@ -328,7 +468,7 @@ function StatBox({ label, value, INK, INKDARK, monoStyle }) {
 /* ---------------------------------------------------------
    Quiz
 --------------------------------------------------------- */
-function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, serifStyle, monoStyle, INK, INKDARK, GREEN }) {
+function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, finishing, serifStyle, monoStyle, INK, INKDARK, GREEN }) {
   return (
     <div>
       <div className="flex flex-wrap gap-1.5 mb-5">
@@ -386,8 +526,8 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
         <button onClick={onPrev} disabled={index === 0} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold disabled:opacity-30">
           上一題
         </button>
-        <button onClick={onNext} disabled={selected === undefined} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-30">
-          {index === total - 1 ? "完成測驗" : "下一題"}
+        <button onClick={onNext} disabled={selected === undefined || finishing} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-30">
+          {finishing ? "儲存中…" : index === total - 1 ? "完成測驗" : "下一題"}
         </button>
       </div>
     </div>
@@ -397,12 +537,15 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, wrongIds, answers, reviewList, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+function ResultsView({ score, studentName, wrongIds, answers, reviewList, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
   const wrongQuestions = QUESTIONS.filter((q) => wrongIds.includes(q.id));
 
   return (
     <div>
       <div className="text-center mb-6">
+        <p style={{ color: INKDARK }} className="text-sm font-bold mb-2">
+          測試人：{studentName}
+        </p>
         <p style={{ ...monoStyle, color: "#8a8272" }} className="text-[10px] tracking-[0.25em] uppercase mb-1">
           得分
         </p>

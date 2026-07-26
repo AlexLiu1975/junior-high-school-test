@@ -1,6 +1,14 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getFirestore,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
 import { getMissingFirebaseConfigKeys } from "./firebaseConfig";
 
 // 這些值請到 Firebase 主控台 → 專案設定 → 一般 → 你的應用程式（Web） 取得，
@@ -64,4 +72,27 @@ export async function loadProgress(uid, quizId) {
 export async function saveProgress(uid, quizId, data) {
   requireFirebase();
   await setDoc(progressDocRef(uid, quizId), data);
+}
+
+export async function validateStudentEntry(studentCode, studentName) {
+  requireFirebase();
+  const ref = doc(db, "studentEntries", studentCode, "names", studentName);
+  const snapshot = await getDoc(ref);
+  if (!snapshot.exists() || snapshot.data().active !== true) {
+    throw new Error("student-entry-not-found");
+  }
+  return {
+    studentId: snapshot.data().studentId,
+    studentCode,
+    studentName,
+  };
+}
+
+export async function saveQuizAttempt(record) {
+  requireFirebase();
+  const created = await addDoc(collection(db, "quizAttempts"), {
+    ...record,
+    submittedAt: serverTimestamp(),
+  });
+  return created.id;
 }
