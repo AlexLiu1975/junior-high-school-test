@@ -9,19 +9,15 @@ import {
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { getMissingFirebaseConfigKeys } from "./firebaseConfig";
+import {
+  getFirebaseConfig,
+  getMissingFirebaseConfigKeys,
+} from "./firebaseConfig";
 
 // 這些值請到 Firebase 主控台 → 專案設定 → 一般 → 你的應用程式（Web） 取得，
 // 填入專案根目錄的 .env 檔（參考 .env.example）。這些值本身不是機密資訊，
 // 真正的存取控管要靠 Firestore 安全規則。
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+const firebaseConfig = getFirebaseConfig();
 
 const missingConfigKeys = getMissingFirebaseConfigKeys(firebaseConfig);
 const app = missingConfigKeys.length === 0 ? initializeApp(firebaseConfig) : null;
