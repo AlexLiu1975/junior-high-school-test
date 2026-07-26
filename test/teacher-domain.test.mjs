@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildParentApprovalPaths,
+  buildTeacherAccess,
   formatStudentCode,
   getPortalState,
   validateAccessApplication,
@@ -70,4 +72,42 @@ test("formats an Asia Taipei request date and sequence", () => {
   const date = new Date("2026-07-25T16:30:00.000Z");
   assert.equal(formatStudentCode(date, 1), "20260726-001");
   assert.throws(() => formatStudentCode(date, 1000), /daily-code-limit/);
+});
+
+test("builds teacher access without student scope", () => {
+  assert.deepEqual(buildTeacherAccess({ uid: "teacher-uid" }), {
+    uid: "teacher-uid",
+    role: "teacher",
+    studentIds: [],
+  });
+});
+
+test("builds deterministic parent approval paths", () => {
+  const paths = buildParentApprovalPaths({
+    request: {
+      uid: "parent-uid",
+      studentName: " 王小明 ",
+      requestedAt: new Date("2026-07-25T16:30:00.000Z"),
+    },
+    sequence: 1,
+  });
+  assert.deepEqual(paths, {
+    studentCode: "20260726-001",
+    counterPath: "dailyCounters/20260726",
+    entryPath: "studentEntries/20260726-001/names/王小明",
+    accessPath: "viewerAccess/parent-uid",
+    requestPath: "accessRequests/parent-uid",
+  });
+  assert.throws(
+    () =>
+      buildParentApprovalPaths({
+        request: {
+          uid: "parent-uid",
+          studentName: "王小明",
+          requestedAt: new Date("2026-07-25T16:30:00.000Z"),
+        },
+        sequence: 1000,
+      }),
+    /daily-code-limit/,
+  );
 });

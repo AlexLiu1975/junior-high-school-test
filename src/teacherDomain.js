@@ -45,3 +45,24 @@ export function formatStudentCode(date, sequence) {
   );
   return `${values.year}${values.month}${values.day}-${String(sequence).padStart(3, "0")}`;
 }
+
+export function buildTeacherAccess(request) {
+  return { uid: request.uid, role: "teacher", studentIds: [] };
+}
+
+export function buildParentApprovalPaths({ request, sequence }) {
+  const requestedAt = request.requestedAt?.toDate?.() ?? request.requestedAt;
+  const studentCode = formatStudentCode(requestedAt, sequence);
+  const dateKey = studentCode.slice(0, 8);
+  const studentName = normalizeStudentName(request.studentName);
+  if (!studentName || studentName.includes("/")) {
+    throw new Error("invalid-student-name");
+  }
+  return {
+    studentCode,
+    counterPath: `dailyCounters/${dateKey}`,
+    entryPath: `studentEntries/${studentCode}/names/${studentName}`,
+    accessPath: `viewerAccess/${request.uid}`,
+    requestPath: `accessRequests/${request.uid}`,
+  };
+}

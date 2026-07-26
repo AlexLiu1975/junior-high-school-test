@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  approveParent,
+  approveTeacher,
   listAttemptsForAccess,
   listStudentsForAccess,
   loadOwnAccess,
   onTeacherAuthStateChanged,
+  rejectRequest,
   signInTeacher,
   signOutTeacher,
+  subscribeToPendingRequests,
   submitAccessRequest,
 } from "./teacherFirebase.js";
 import { getPortalState } from "./teacherDomain.js";
@@ -32,6 +36,9 @@ export default function TeacherApp() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [busyRequest, setBusyRequest] = useState("");
+  const [generatedCode, setGeneratedCode] = useState("");
   const [error, setError] = useState("");
 
   const portalState = getPortalState({ user, request, access });
@@ -88,6 +95,20 @@ export default function TeacherApp() {
     };
   }, []);
 
+  useEffect(() => {
+    if (portalState !== "admin") {
+      setPendingRequests([]);
+      return undefined;
+    }
+    try {
+      return subscribeToPendingRequests(setPendingRequests);
+    } catch (caught) {
+      console.error(caught);
+      setError("無法載入待審核申請。");
+      return undefined;
+    }
+  }, [portalState]);
+
   const visibleAttempts = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase("zh-TW");
     if (!keyword) return attempts;
@@ -124,6 +145,28 @@ export default function TeacherApp() {
       setError("Google 登入未完成。");
     } finally {
       setWorking(false);
+    }
+  };
+
+  const review = async (item, decision) => {
+    if (busyRequest) return;
+    setBusyRequest(item.uid);
+    setGeneratedCode("");
+    setError("");
+    try {
+      if (decision === "reject") {
+        await rejectRequest(item);
+      } else if (item.role === "teacher") {
+        await approveTeacher(item);
+      } else {
+        const result = await approveParent(item);
+        setGeneratedCode(`${item.studentName} 的學生專屬代碼：${result.studentCode}`);
+      }
+    } catch (caught) {
+      console.error(caught);
+      setError("審核未完成，資料未變更，請稍後重試。");
+    } finally {
+      setBusyRequest("");
     }
   };
 
@@ -196,7 +239,29 @@ export default function TeacherApp() {
             </section>
           )}
           {portalState === "admin" && (
-            <Notice>申請審核功能將在下一階段啟用。</Notice>
+            <section className="mb-6 overflow-hidden rounded-2xl border bg-white shadow-sm">
+              <div className="border-b p-5">
+                <h2 className="text-xl font-bold">待審核申請</h2>
+                {generatedCode && <p className="mt-2 font-semibold text-emerald-800">{generatedCode}</p>}
+              </div>
+              <div className="divide-y">
+                {pendingRequests.map((item) => (
+                  <div className="grid gap-3 p-5 md:grid-cols-[1fr_auto] md:items-center" key={item.uid}>
+                    <div>
+                      <p className="font-bold">{item.displayName || "未提供名稱"} · {item.role === "teacher" ? "教師" : "家長"}</p>
+                      <p className="text-sm text-slate-600">{item.email}</p>
+                      {item.role === "parent" && <p className="mt-1 text-sm">指定學生：{item.studentName}</p>}
+                      <p className="mt-1 text-xs text-slate-500">申請時間：{formatTime(item.requestedAt)}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={Boolean(busyRequest)} onClick={() => review(item, "approve")}>核准</button>
+                      <button className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={Boolean(busyRequest)} onClick={() => review(item, "reject")}>拒絕</button>
+                    </div>
+                  </div>
+                ))}
+                {pendingRequests.length === 0 && <p className="p-6 text-center text-slate-500">目前沒有待審核申請。</p>}
+              </div>
+            </section>
           )}
           <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
             <div className="border-b p-4">
