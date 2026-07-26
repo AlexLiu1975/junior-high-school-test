@@ -9,14 +9,13 @@ import {
 import {
   buildAttemptRecord,
   createAttemptGuard,
-  createInFlightGuard,
   validateStudentIdentity,
 } from "./quizDomain";
 import {
   isAnswerCorrect,
-  prepareQuiz,
   scoreQuiz,
 } from "./quizRandomization";
+import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
 
 /* ---------------------------------------------------------
    資料：第 1 回 第1、2單元 — 細胞與顯微鏡（20題）
@@ -83,10 +82,11 @@ export default function App() {
   const [verifiedIdentity, setVerifiedIdentity] = useState(null);
   const [identityError, setIdentityError] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [runId, setRunId] = useState(null);
   const [finishing, setFinishing] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  const startGuardRef = useRef(createInFlightGuard());
+  const attemptLifecycleRef = useRef(createQuizAttemptLifecycle());
 
   useEffect(() => {
     (async () => {
@@ -120,8 +120,10 @@ export default function App() {
   );
 
   const startQuiz = async () => {
-    if (!startGuardRef.current.claim()) return;
+    const lifecycle = attemptLifecycleRef.current;
+    if (!lifecycle.claimStart()) return;
 
+    setStarting(true);
     try {
       const checked = validateStudentIdentity({ studentName, studentCode });
       if (!checked.valid) {
@@ -129,17 +131,14 @@ export default function App() {
         return;
       }
 
-      setStarting(true);
       setIdentityError(null);
       const identity = await validateStudentEntry(
         checked.studentCode,
         checked.studentName,
       );
-      let preparedQuestions;
-      try {
-        preparedQuestions = prepareQuiz(QUESTIONS);
-      } catch {
-        setIdentityError("目前沒有可用的題目。");
+      const prepared = lifecycle.prepareAttempt(QUESTIONS);
+      if (!prepared.ok) {
+        setIdentityError(prepared.error);
         return;
       }
       setVerifiedIdentity(identity);
@@ -149,13 +148,14 @@ export default function App() {
       setSaveError(null);
       setAnswers({});
       setCurrent(0);
-      setQuizQuestions(preparedQuestions);
+      setQuizQuestions(prepared.questions);
+      setFinishing(false);
       setView("quiz");
     } catch {
       setIdentityError("找不到相符的學生資料。");
     } finally {
       setStarting(false);
-      startGuardRef.current.release();
+      lifecycle.releaseStart();
     }
   };
 
@@ -164,90 +164,109 @@ export default function App() {
   };
 
   const goNext = () => {
-    if (current < quizQuestions.length - 1) {
-      setCurrent((c) => c + 1);
+    const next = attemptLifecycleRef.current.move(current, 1);
+    if (next !== current) {
+      setCurrent(next);
     } else {
       void finishQuiz();
     }
   };
 
   const goPrev = () => {
-    if (current > 0) setCurrent((c) => c - 1);
+    setCurrent(attemptLifecycleRef.current.move(current, -1));
   };
 
   const finishQuiz = async () => {
-    if (finishing || !verifiedIdentity || !uid || !runId) return;
+    if (!verifiedIdentity || !uid || !runId) return;
 
-    const { correctCount } = scoreQuiz(quizQuestions, answers);
+    const lifecycle = attemptLifecycleRef.current;
+    if (!lifecycle.claimFinish()) return;
+
     setFinishing(true);
-    setSaveError(null);
-    const today = new Date();
-    const next = { ...progress };
+    try {
+      const { correctCount } = scoreQuiz(quizQuestions, answers);
+      setSaveError(null);
+      const today = new Date();
+      const next = { ...progress };
 
-    quizQuestions.forEach((q) => {
-      const wasCorrect = isAnswerCorrect(q, answers[q.id]);
+      quizQuestions.forEach((q) => {
+        const wasCorrect = isAnswerCorrect(q, answers[q.id]);
 
-      const prevEntry = next[q.id] || { errorCount: 0, stage: -1 };
-      if (wasCorrect) {
-        const stage = Math.min(prevEntry.stage + 1, INTERVALS.length - 1);
-        next[q.id] = {
-          errorCount: prevEntry.errorCount,
-          stage,
-          lastResult: "correct",
-          lastAttempt: fmtDate(today),
-          nextReview: fmtDate(addDays(today, INTERVALS[stage])),
-        };
-      } else {
-        next[q.id] = {
-          errorCount: prevEntry.errorCount + 1,
-          stage: 0,
-          lastResult: "wrong",
-          lastAttempt: fmtDate(today),
-          nextReview: fmtDate(addDays(today, INTERVALS[0])),
-        };
+        const prevEntry = next[q.id] || { errorCount: 0, stage: -1 };
+        if (wasCorrect) {
+          const stage = Math.min(prevEntry.stage + 1, INTERVALS.length - 1);
+          next[q.id] = {
+            errorCount: prevEntry.errorCount,
+            stage,
+            lastResult: "correct",
+            lastAttempt: fmtDate(today),
+            nextReview: fmtDate(addDays(today, INTERVALS[stage])),
+          };
+        } else {
+          next[q.id] = {
+            errorCount: prevEntry.errorCount + 1,
+            stage: 0,
+            lastResult: "wrong",
+            lastAttempt: fmtDate(today),
+            nextReview: fmtDate(addDays(today, INTERVALS[0])),
+          };
+        }
+      });
+
+      setProgress(next);
+      setLastScore(correctCount);
+      setView("results");
+
+      const writes = [persist(next)];
+      if (attemptGuard.claim(runId)) {
+        writes.push(
+          saveQuizAttempt(
+            buildAttemptRecord({
+              identity: verifiedIdentity,
+              uid,
+              quizId: QUIZ_ID,
+              quizTitle: QUIZ_TITLE,
+              correctCount,
+              totalQuestions: quizQuestions.length,
+            }),
+          ),
+        );
       }
-    });
 
-    setProgress(next);
-    setLastScore(correctCount);
-    setView("results");
-
-    const writes = [persist(next)];
-    if (attemptGuard.claim(runId)) {
-      writes.push(
-        saveQuizAttempt(
-          buildAttemptRecord({
-            identity: verifiedIdentity,
-            uid,
-            quizId: QUIZ_ID,
-            quizTitle: QUIZ_TITLE,
-            correctCount,
-            totalQuestions: quizQuestions.length,
-          }),
-        ),
-      );
+      const results = await Promise.allSettled(writes);
+      if (results.some((result) => result.status === "rejected")) {
+        setSaveError("部分作答紀錄未能儲存，請檢查網路後重新整理。");
+      }
+    } finally {
+      lifecycle.releaseFinish();
+      setFinishing(false);
     }
-
-    const results = await Promise.allSettled(writes);
-    if (results.some((result) => result.status === "rejected")) {
-      setSaveError("部分作答紀錄未能儲存，請檢查網路後重新整理。");
-    }
-    setFinishing(false);
   };
 
   const resetProgress = async () => {
+    const lifecycle = attemptLifecycleRef.current;
+    if (!lifecycle.claimClear()) return;
+
+    setClearing(true);
+    setView("intro");
     setProgress({});
     setAnswers({});
     setQuizQuestions([]);
     setLastScore(null);
-    await persist({});
-    setView("intro");
+    setRunId(null);
+    setSaveError(null);
+    try {
+      await persist({});
+    } finally {
+      lifecycle.releaseClear();
+      setClearing(false);
+    }
   };
 
-  const { wrongIds } =
+  const attemptResults =
     quizQuestions.length > 0
-      ? scoreQuiz(quizQuestions, answers)
-      : { wrongIds: [] };
+      ? attemptLifecycleRef.current.resultsFor(answers)
+      : { correctCount: 0, wrongIds: [], wrongAnswers: [] };
 
   const reviewList = Object.entries(progress)
     .filter(([, v]) => v.errorCount > 0)
@@ -331,6 +350,7 @@ export default function App() {
               onStudentNameChange={setStudentName}
               identityError={identityError}
               starting={starting}
+              clearing={clearing}
               progress={progress}
               reviewCount={reviewList.filter((r) => r.daysLeft <= 0).length}
               serifStyle={serifStyle}
@@ -364,12 +384,12 @@ export default function App() {
             <ResultsView
               score={lastScore}
               studentName={verifiedIdentity?.studentName}
-              questions={quizQuestions}
-              wrongIds={wrongIds}
-              answers={answers}
+              total={quizQuestions.length}
+              wrongAnswers={attemptResults.wrongAnswers}
               reviewList={reviewList}
               identityError={identityError}
               starting={starting}
+              actionsDisabled={finishing || starting || clearing}
               onRetry={startQuiz}
               onReset={resetProgress}
               serifStyle={serifStyle}
@@ -401,6 +421,7 @@ function IntroView({
   onStudentNameChange,
   identityError,
   starting,
+  clearing,
   progress,
   reviewCount,
   serifStyle,
@@ -466,11 +487,17 @@ function IntroView({
 
       <button
         onClick={onStart}
-        disabled={starting}
+        disabled={starting || clearing}
         style={{ background: INK, ...serifStyle }}
         className="w-full py-3.5 rounded text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50"
       >
-        {starting ? "驗證中…" : attempted > 0 ? "重新測驗" : "開始測驗"}
+        {clearing
+          ? "清除中…"
+          : starting
+            ? "驗證中…"
+            : attempted > 0
+              ? "重新測驗"
+              : "開始測驗"}
       </button>
     </div>
   );
@@ -561,11 +588,7 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, studentName, questions, wrongIds, answers, reviewList, identityError, starting, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
-  const wrongQuestions = questions.filter((q) => wrongIds.includes(q.id));
-  const attemptPosition = (questionId) =>
-    questions.findIndex(({ id }) => id === questionId) + 1;
-
+function ResultsView({ score, studentName, total, wrongAnswers, reviewList, identityError, starting, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
   return (
     <div>
       {identityError && (
@@ -588,42 +611,42 @@ function ResultsView({ score, studentName, questions, wrongIds, answers, reviewL
           </span>
         </p>
         <p style={{ color: INKDARK }} className="text-sm mt-1">
-          答對 {score} 題，答錯 {20 - score} 題
+          答對 {score} 題，答錯 {total - score} 題
         </p>
       </div>
 
-      {wrongQuestions.length > 0 ? (
+      {wrongAnswers.length > 0 ? (
         <div className="mb-7">
           <h3 style={{ ...serifStyle, color: RED }} className="text-sm font-bold mb-3 flex items-center gap-2">
             <span className="pen-circle-red w-5 h-5 flex items-center justify-center text-[10px]" style={{ ...monoStyle, color: RED }}>
               ✕
             </span>
-            錯題標示（{wrongQuestions.length} 題）
+            錯題標示（{wrongAnswers.length} 題）
           </h3>
           <div className="space-y-3">
-            {wrongQuestions.map((q) => (
-              <div key={q.id} className="rounded border px-4 py-3" style={{ borderColor: "#E3B0A8", background: "rgba(178,58,46,0.05)" }}>
+            {wrongAnswers.map((wrongAnswer) => (
+              <div key={wrongAnswer.id} className="rounded border px-4 py-3" style={{ borderColor: "#E3B0A8", background: "rgba(178,58,46,0.05)" }}>
                 <p style={{ ...monoStyle, color: RED }} className="text-[11px] mb-1">
-                  本次第 {attemptPosition(q.id)} 題 ・ 累計錯誤 {reviewList.find((r) => r.id === q.id)?.errorCount || 1} 次
+                  本次第 {wrongAnswer.attemptPosition} 題 ・ 累計錯誤 {reviewList.find((r) => r.id === wrongAnswer.id)?.errorCount || 1} 次
                 </p>
                 <p style={{ color: INKDARK }} className="text-sm mb-2">
-                  {q.text}
+                  {wrongAnswer.text}
                 </p>
                 <p style={{ color: INKDARK }} className="text-xs">
                   你的答案：
                   <span style={{ color: RED }} className="font-bold">
                     {" "}
-                    {answers[q.id] !== undefined ? `(${LETTERS[answers[q.id]]}) ${q.options[answers[q.id]].text}` : "未作答"}
+                    {wrongAnswer.selectedAnswer
+                      ? `(${wrongAnswer.selectedAnswer.letter}) ${wrongAnswer.selectedAnswer.text}`
+                      : "未作答"}
                   </span>
                 </p>
                 <p style={{ color: INKDARK }} className="text-xs mt-0.5">
                   正確答案：
                   <span style={{ color: GREEN }} className="font-bold">
                     {" "}
-                    {(() => {
-                      const correctIndex = q.options.findIndex(({ isCorrect }) => isCorrect);
-                      return `(${LETTERS[correctIndex]}) ${q.options[correctIndex].text}`;
-                    })()}
+                    ({wrongAnswer.correctAnswer.letter}){" "}
+                    {wrongAnswer.correctAnswer.text}
                   </span>
                 </p>
               </div>
@@ -666,10 +689,10 @@ function ResultsView({ score, studentName, questions, wrongIds, answers, reviewL
       )}
 
       <div className="flex gap-3">
-        <button onClick={onReset} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold">
+        <button onClick={onReset} disabled={actionsDisabled} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold disabled:opacity-50">
           清除紀錄
         </button>
-        <button onClick={onRetry} disabled={starting} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-50">
+        <button onClick={onRetry} disabled={actionsDisabled} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-50">
           {starting ? "驗證中…" : "重新測驗"}
         </button>
       </div>

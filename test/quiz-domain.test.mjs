@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   buildAttemptRecord,
   createAttemptGuard,
-  createInFlightGuard,
   normalizeStudentCode,
   validateStudentIdentity,
 } from "../src/quizDomain.js";
@@ -69,12 +68,4 @@ test("attempt guard allows one write per completed run", () => {
   assert.equal(guard.claim("run-1"), true);
   assert.equal(guard.claim("run-1"), false);
   assert.equal(guard.claim("run-2"), true);
-});
-
-test("in-flight guard blocks concurrent quiz starts until released", () => {
-  const guard = createInFlightGuard();
-  assert.equal(guard.claim(), true);
-  assert.equal(guard.claim(), false);
-  guard.release();
-  assert.equal(guard.claim(), true);
 });

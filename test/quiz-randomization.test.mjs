@@ -58,6 +58,21 @@ test("prepareQuiz preserves every question and option exactly once", () => {
   assert.deepEqual(questions, sourceSnapshot);
 });
 
+test("prepareQuiz deterministically shuffles every question's options", () => {
+  const prepared = prepareQuiz(questions, alwaysZero);
+  const optionsById = Object.fromEntries(
+    prepared.map((question) => [
+      question.id,
+      question.options.map(({ text }) => text),
+    ]),
+  );
+
+  assert.deepEqual(optionsById, {
+    q1: ["乙", "丙", "丁", "甲"],
+    q2: ["己", "庚", "辛", "戊"],
+  });
+});
+
 test("prepared correctness survives option randomization and scores by stable id", () => {
   const prepared = prepareQuiz(questions, alwaysZero);
   const correctAnswers = Object.fromEntries(
@@ -77,9 +92,11 @@ test("prepared correctness survives option randomization and scores by stable id
     wrongIds: [],
   });
 
-  const oneMissing = { ...correctAnswers };
-  delete oneMissing.q1;
-  assert.deepEqual(scoreQuiz(prepared, oneMissing), {
+  const oneWrong = {
+    ...correctAnswers,
+    q1: (correctAnswers.q1 + 1) % 4,
+  };
+  assert.deepEqual(scoreQuiz(prepared, oneWrong), {
     correctCount: 1,
     wrongIds: ["q1"],
   });
