@@ -68,7 +68,7 @@ export default function App() {
         setProgress(data || {});
       } catch (e) {
         console.error("Firebase load failed", e);
-        setLoadError("無法連線到 Firebase，請確認 .env 設定與 Firestore 規則是否正確。");
+        setLoadError("雲端進度同步尚未完成設定；目前仍可正常作答，但重新整理後不會保留進度。");
       } finally {
         setLoaded(true);
       }

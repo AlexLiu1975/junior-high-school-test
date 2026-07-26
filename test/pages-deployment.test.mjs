@@ -19,3 +19,21 @@ test("GitHub Actions builds and deploys the Vite dist directory", async () => {
   assert.match(workflow, /path:\s*dist/);
   assert.match(workflow, /actions\/deploy-pages@v4/);
 });
+
+test("missing Firebase settings are reported before SDK initialization", async () => {
+  const { getMissingFirebaseConfigKeys } = await import(
+    "../src/firebaseConfig.js"
+  );
+
+  assert.deepEqual(
+    getMissingFirebaseConfigKeys({
+      apiKey: "",
+      authDomain: undefined,
+      projectId: "junior-high-school-test",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: "",
+    }),
+    ["apiKey", "authDomain", "storageBucket", "messagingSenderId", "appId"],
+  );
+});
