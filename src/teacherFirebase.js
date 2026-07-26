@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import {
+  browserPopupRedirectResolver,
   GoogleAuthProvider,
   inMemoryPersistence,
   initializeAuth,
@@ -38,8 +39,16 @@ const teacherApp =
   missingConfigKeys.length === 0
     ? initializeApp(firebaseConfig, "teacher-portal")
     : null;
+
+export function getTeacherAuthOptions() {
+  return {
+    persistence: inMemoryPersistence,
+    popupRedirectResolver: browserPopupRedirectResolver,
+  };
+}
+
 const teacherAuth = teacherApp
-  ? initializeAuth(teacherApp, { persistence: inMemoryPersistence })
+  ? initializeAuth(teacherApp, getTeacherAuthOptions())
   : null;
 const teacherDb = teacherApp ? getFirestore(teacherApp) : null;
 const provider = new GoogleAuthProvider();
