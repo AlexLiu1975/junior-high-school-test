@@ -1,77 +1,92 @@
-# 細胞與顯微鏡 隨堂測驗
+# 國中生物測驗與紀錄系統
 
-國中生物「1〜2冊 第1回 第1、2單元」20 題選擇題測驗網站。作答完成後會標示錯題、
-累計每題錯誤次數，並依艾賓浩斯遺忘曲線（1、2、4、7、15、30 天）安排下次複習時間。
-進度儲存在 Firebase Firestore，跨裝置以匿名帳號區分。
+20 題「細胞與顯微鏡」測驗網站。系統保留每一次作答，並提供教師／家長紀錄頁。
 
-## 1. 建立 Firebase 專案
+## 使用流程
 
-你的 Google Cloud 專案 `junior-high-school-test` 已經存在，只需要把 Firebase 加進去：
+### 學生
 
-1. 到 [Firebase 主控台](https://console.firebase.google.com/)
-2. 點「新增專案」→ 選擇「使用現有的 Google Cloud 專案」→ 選 `junior-high-school-test`
-3. 左側選單「建構」→「Authentication」→ 啟用「匿名」登入方式
-4. 左側選單「建構」→「Firestore Database」→ 建立資料庫（正式環境模式即可，稍後會設定規則）
-5. 左側「專案設定」（齒輪圖示）→「一般」→ 捲到「你的應用程式」→ 點 Web（`</>`）圖示新增一個 Web 應用程式
-6. 複製顯示出來的 `firebaseConfig` 物件裡的值，貼到專案根目錄的 `.env` 檔（見下方）
+1. 家長申請並經管理員核准後，取得格式為 `YYYYMMDD-NNN` 的學生專屬代碼。
+2. 學生在測驗首頁輸入「專屬代碼＋學生姓名」。
+3. 完成測驗後，每次成績會獨立保存；個人錯題複習進度仍以匿名帳號保存。
 
-## 2. 設定 Firestore 安全規則
+### 教師與家長
 
-到 Firestore →「規則」，貼上：
+入口：`/teacher.html`
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid}/quizProgress/{quizId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-  }
-}
-```
+1. 使用 Google 帳號登入。
+2. 首次使用時申請「教師」或「家長」權限；家長需填寫指定學生姓名。
+3. 管理員核准後，教師可查看全部紀錄；家長只能查看已核准學生的紀錄與專屬代碼。
 
-這樣每個人（含匿名帳號）只能讀寫自己的測驗進度。
+### 管理員
 
-## 3. 本機設定與執行
+唯一初始管理員帳號是 `beyle931224@gmail.com`，且 Google 電子郵件必須已驗證。管理員可在紀錄頁核准或拒絕申請。核准家長時，系統會以台北日期與當日流水號自動建立學生代碼。
+
+> GitHub Pages 是公開網站。請勿在學生姓名以外存放電話、地址、學號或其他敏感個資。真正的資料存取邊界由 `firestore.rules` 執行，不依賴前端畫面隱藏。
+
+## Firebase 設定
+
+專案 ID：`junior-high-school-test`
+
+1. Authentication → Sign-in method：同時啟用「匿名」與「Google」。
+2. Google 登入方式需選擇專案支援電子郵件。
+3. Authentication → Settings → Authorized domains：保留 `alexliu1975.github.io`。
+4. 建立 Firestore Database。
+5. 部署本倉庫的安全規則：
+
+   ```bash
+   firebase login
+   firebase deploy --only firestore:rules --project junior-high-school-test
+   ```
+
+6. 本機使用 `.env`；GitHub Pages 使用 Repository Variables：
+
+   ```text
+   VITE_FIREBASE_API_KEY
+   VITE_FIREBASE_AUTH_DOMAIN
+   VITE_FIREBASE_PROJECT_ID
+   VITE_FIREBASE_STORAGE_BUCKET
+   VITE_FIREBASE_MESSAGING_SENDER_ID
+   VITE_FIREBASE_APP_ID
+   ```
+
+## 本機執行
 
 ```bash
 cp .env.example .env
-# 打開 .env，填入 firebaseConfig 的各項值
 npm install
 npm run dev
 ```
 
-瀏覽器打開終端機顯示的網址（預設 http://localhost:5173）即可測驗。
+學生頁預設為 `http://localhost:5173/`，教師／家長頁為 `http://localhost:5173/teacher.html`。
 
-## 4. 建置與部署（選用：Firebase Hosting）
+## 驗證
 
 ```bash
+npm test
+npm run test:rules
+npm run lint
 npm run build
-npm install -g firebase-tools   # 如果還沒裝過
-firebase login
-firebase init hosting           # public 目錄選 dist，設定為單頁應用程式
-firebase deploy
 ```
 
-## 5. 上傳到 GitHub
+`test:rules` 需要 Java 21 或相容版本，會啟動本機 Firestore Emulator。一般 `npm test` 在未啟動模擬器時會跳過 Rules 專用案例；完整授權驗證請以 `npm run test:rules` 為準。
 
-這個資料夾已經是 git 倉庫並完成第一次 commit。因為這個環境沒有你的 GitHub 憑證，
-請在你自己的電腦上執行：
+## 主要資料
 
-```bash
-git remote add origin git@github.com:AlexLiu1975/junior-high-school-test.git
-git push -u origin main
-```
-
-（如果你是用 HTTPS + Personal Access Token 登入 GitHub，把上面的網址換成
-`https://github.com/AlexLiu1975/junior-high-school-test.git`。）
+- `studentEntries/{code}/names/{exactName}`：學生登入核對。
+- `students/{studentId}`：核准的學生與代碼。
+- `quizAttempts/{attemptId}`：每一次不可修改的測驗紀錄。
+- `accessRequests/{uid}`：教師／家長申請。
+- `viewerAccess/{uid}`：核准角色與家長可查看的學生範圍。
+- `dailyCounters/{YYYYMMDD}`：每日代碼流水號；不可重設，以免代碼重複。
 
 ## 專案結構
 
-```
-src/
-  App.jsx        測驗主畫面、計分、複習排程邏輯
-  firebase.js    Firebase 初始化、匿名登入、讀寫進度
-  main.jsx       React 進入點
-.env.example     Firebase 設定範本（.env 不會被提交到 git）
+```text
+src/App.jsx              學生測驗頁
+src/TeacherApp.jsx       教師、家長與管理員紀錄頁
+src/firebase.js          學生匿名登入、進度與作答寫入
+src/teacherFirebase.js   Google 登入、申請、審核與紀錄查詢
+firestore.rules          正式資料授權邊界
+test/                    單元、建置與 Firestore Rules 測試
 ```

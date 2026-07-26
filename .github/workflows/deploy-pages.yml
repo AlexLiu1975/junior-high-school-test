@@ -27,8 +27,23 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Set up Java for Firestore rules tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Test application
+        run: npm test
+
+      - name: Test Firestore security rules
+        run: npm run test:rules
+
+      - name: Lint application
+        run: npm run lint
 
       - name: Build site
         run: npm run build
