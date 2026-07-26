@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Noto Serif TC';
+  src: local('Noto Serif TC');
+}
+
+body {
+  margin: 0;
+}
