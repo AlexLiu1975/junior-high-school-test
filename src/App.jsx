@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   ensureSignedIn,
   loadProgress,
@@ -9,6 +9,7 @@ import {
 import {
   buildAttemptRecord,
   createAttemptGuard,
+  createInFlightGuard,
   validateStudentIdentity,
 } from "./quizDomain";
 import {
@@ -85,6 +86,7 @@ export default function App() {
   const [runId, setRunId] = useState(null);
   const [finishing, setFinishing] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const startGuardRef = useRef(createInFlightGuard());
 
   useEffect(() => {
     (async () => {
@@ -118,15 +120,17 @@ export default function App() {
   );
 
   const startQuiz = async () => {
-    const checked = validateStudentIdentity({ studentName, studentCode });
-    if (!checked.valid) {
-      setIdentityError(checked.error);
-      return;
-    }
+    if (!startGuardRef.current.claim()) return;
 
-    setStarting(true);
-    setIdentityError(null);
     try {
+      const checked = validateStudentIdentity({ studentName, studentCode });
+      if (!checked.valid) {
+        setIdentityError(checked.error);
+        return;
+      }
+
+      setStarting(true);
+      setIdentityError(null);
       const identity = await validateStudentEntry(
         checked.studentCode,
         checked.studentName,
@@ -151,6 +155,7 @@ export default function App() {
       setIdentityError("找不到相符的學生資料。");
     } finally {
       setStarting(false);
+      startGuardRef.current.release();
     }
   };
 
@@ -363,6 +368,8 @@ export default function App() {
               wrongIds={wrongIds}
               answers={answers}
               reviewList={reviewList}
+              identityError={identityError}
+              starting={starting}
               onRetry={startQuiz}
               onReset={resetProgress}
               serifStyle={serifStyle}
@@ -554,13 +561,18 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, studentName, questions, wrongIds, answers, reviewList, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+function ResultsView({ score, studentName, questions, wrongIds, answers, reviewList, identityError, starting, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
   const wrongQuestions = questions.filter((q) => wrongIds.includes(q.id));
   const attemptPosition = (questionId) =>
     questions.findIndex(({ id }) => id === questionId) + 1;
 
   return (
     <div>
+      {identityError && (
+        <p role="alert" style={{ color: RED }} className="text-sm mb-4">
+          {identityError}
+        </p>
+      )}
       <div className="text-center mb-6">
         <p style={{ color: INKDARK }} className="text-sm font-bold mb-2">
           測試人：{studentName}
@@ -657,8 +669,8 @@ function ResultsView({ score, studentName, questions, wrongIds, answers, reviewL
         <button onClick={onReset} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold">
           清除紀錄
         </button>
-        <button onClick={onRetry} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold">
-          重新測驗
+        <button onClick={onRetry} disabled={starting} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-50">
+          {starting ? "驗證中…" : "重新測驗"}
         </button>
       </div>
     </div>
