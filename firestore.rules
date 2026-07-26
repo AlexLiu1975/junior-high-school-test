@@ -1,0 +1,132 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email == "beyle931224@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+
+    function hasAccess() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/viewerAccess/$(request.auth.uid));
+    }
+
+    function access() {
+      return get(/databases/$(database)/documents/viewerAccess/$(request.auth.uid)).data;
+    }
+
+    function isTeacher() {
+      return hasAccess() && access().role == "teacher";
+    }
+
+    function parentCanRead(studentId) {
+      return hasAccess()
+        && access().role == "parent"
+        && studentId in access().studentIds;
+    }
+
+    match /users/{uid}/quizzes/{quizId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /studentEntries/{studentCode}/names/{studentName} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow write: if isAdmin();
+    }
+
+    match /quizAttempts/{attemptId} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "quizId", "quizTitle", "studentUid", "studentId", "studentCode",
+          "studentName", "score", "correctCount", "wrongCount", "submittedAt"
+        ])
+        && request.resource.data.studentUid == request.auth.uid
+        && request.resource.data.quizId is string
+        && request.resource.data.quizId.size() >= 1
+        && request.resource.data.quizId.size() <= 80
+        && request.resource.data.quizTitle is string
+        && request.resource.data.quizTitle.size() >= 1
+        && request.resource.data.quizTitle.size() <= 120
+        && request.resource.data.studentId is string
+        && request.resource.data.studentCode is string
+        && request.resource.data.studentName is string
+        && request.resource.data.studentName.size() >= 1
+        && request.resource.data.studentName.size() <= 40
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 100
+        && request.resource.data.correctCount is int
+        && request.resource.data.wrongCount is int
+        && request.resource.data.correctCount >= 0
+        && request.resource.data.wrongCount >= 0
+        && request.resource.data.correctCount + request.resource.data.wrongCount > 0
+        && request.resource.data.submittedAt == request.time
+        && exists(
+          /databases/$(database)/documents/studentEntries/$(request.resource.data.studentCode)/names/$(request.resource.data.studentName)
+        )
+        && get(
+          /databases/$(database)/documents/studentEntries/$(request.resource.data.studentCode)/names/$(request.resource.data.studentName)
+        ).data.active == true
+        && get(
+          /databases/$(database)/documents/studentEntries/$(request.resource.data.studentCode)/names/$(request.resource.data.studentName)
+        ).data.studentId == request.resource.data.studentId;
+      allow read: if isAdmin() || isTeacher() || parentCanRead(resource.data.studentId);
+      allow update, delete: if false;
+    }
+
+    match /accessRequests/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == "google.com"
+        && request.resource.data.keys().hasOnly([
+          "uid", "email", "displayName", "role", "studentName", "status",
+          "requestedAt", "reviewedAt", "reviewedBy"
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.status == "pending"
+        && request.resource.data.requestedAt == request.time
+        && request.resource.data.reviewedAt == null
+        && request.resource.data.reviewedBy == null
+        && (
+          (request.resource.data.role == "teacher" && request.resource.data.studentName == null)
+          || (
+            request.resource.data.role == "parent"
+            && request.resource.data.studentName is string
+            && request.resource.data.studentName.size() >= 1
+            && request.resource.data.studentName.size() <= 40
+          )
+        );
+      allow get: if signedIn() && request.auth.uid == uid || isAdmin();
+      allow list: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /viewerAccess/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid || isAdmin();
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if isAdmin() || isTeacher() || parentCanRead(studentId);
+      allow write: if isAdmin();
+    }
+
+    match /dailyCounters/{dateKey} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
