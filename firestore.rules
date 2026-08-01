@@ -121,6 +121,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /adminStudentLinks/{adminUid}/students/{studentId} {
+      allow read, write: if isAdmin() && request.auth.uid == adminUid;
+    }
+
     match /dailyCounters/{dateKey} {
       allow read, write: if isAdmin();
     }

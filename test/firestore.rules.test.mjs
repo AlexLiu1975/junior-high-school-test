@@ -39,6 +39,16 @@ if (emulatorAvailable) {
         active: true,
         studentId: "student-1",
       });
+      await setDoc(doc(db, "students/admin-student-1"), {
+        name: "王小明",
+        code: "20260801-001",
+        active: true,
+        ownerUid: "admin-uid",
+        ownerType: "admin",
+      });
+      await setDoc(doc(db, "adminStudentLinks/admin-uid/students/admin-student-1"), {
+        studentId: "admin-student-1",
+      });
       await setDoc(doc(db, "viewerAccess/parent-uid"), {
         uid: "parent-uid",
         role: "parent",
@@ -141,4 +151,68 @@ rulesTest("only verified administrator may approve access", async () => {
   await assertFails(updateDoc(doc(pendingDb, "accessRequests/parent-uid"), { status: "approved" }));
   await assertSucceeds(setDoc(doc(adminDb, "viewerAccess/another-parent"), parentAccess));
   await assertFails(setDoc(doc(unverifiedAdminDb, "viewerAccess/another-parent"), parentAccess));
+});
+
+rulesTest("only the verified administrator manages own student links", async () => {
+  const adminDb = environment
+    .authenticatedContext("admin-uid", auth("admin-uid", "beyle931224@gmail.com"))
+    .firestore();
+  const parentDb = environment
+    .authenticatedContext("parent-uid", auth("parent-uid", "parent@example.com"))
+    .firestore();
+  const unverifiedDb = environment
+    .authenticatedContext(
+      "admin-uid-2",
+      auth("admin-uid-2", "beyle931224@gmail.com", false),
+    )
+    .firestore();
+
+  const link = { studentId: "new-admin-student", createdAt: serverTimestamp() };
+  await assertSucceeds(
+    setDoc(doc(adminDb, "adminStudentLinks/admin-uid/students/new-admin-student"), link),
+  );
+  await assertFails(
+    setDoc(doc(parentDb, "adminStudentLinks/parent-uid/students/attack"), link),
+  );
+  await assertFails(
+    setDoc(doc(unverifiedDb, "adminStudentLinks/admin-uid-2/students/attack"), link),
+  );
+});
+
+rulesTest("only the verified administrator creates direct student records", async () => {
+  const adminDb = environment
+    .authenticatedContext("admin-uid", auth("admin-uid", "beyle931224@gmail.com"))
+    .firestore();
+  const parentDb = environment
+    .authenticatedContext("parent-uid", auth("parent-uid", "parent@example.com"))
+    .firestore();
+  const student = {
+    name: "李小華",
+    code: "20260801-002",
+    active: true,
+    ownerUid: "admin-uid",
+    ownerType: "admin",
+    createdAt: serverTimestamp(),
+  };
+
+  await assertSucceeds(setDoc(doc(adminDb, "students/new-admin-student"), student));
+  await assertSucceeds(
+    setDoc(doc(adminDb, "studentEntries/20260801-002/names/李小華"), {
+      active: true,
+      studentId: "new-admin-student",
+    }),
+  );
+  await assertSucceeds(
+    setDoc(doc(adminDb, "dailyCounters/20260801"), { nextSequence: 3 }),
+  );
+  await assertFails(setDoc(doc(parentDb, "students/attack"), student));
+  await assertFails(
+    setDoc(doc(parentDb, "studentEntries/ATTACK/names/李小華"), {
+      active: true,
+      studentId: "attack",
+    }),
+  );
+  await assertFails(
+    setDoc(doc(parentDb, "dailyCounters/20260801"), { nextSequence: 999 }),
+  );
 });
