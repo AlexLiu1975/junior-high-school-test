@@ -28,10 +28,12 @@ import {
   getMissingFirebaseConfigKeys,
 } from "./firebaseConfig.js";
 import {
+  buildAdminStudentPaths,
   buildParentApprovalPaths,
   buildTeacherAccess,
   validateAccessApplication,
 } from "./teacherDomain.js";
+import { planAdminStudentCreation } from "./adminStudentService.js";
 
 const firebaseConfig = getFirebaseConfig();
 const missingConfigKeys = getMissingFirebaseConfigKeys(firebaseConfig);
@@ -154,6 +156,90 @@ function requireAdmin() {
     throw new Error("admin-required");
   }
   return user;
+}
+
+export async function createAdminStudent(studentName) {
+  const admin = requireAdmin();
+  const studentRef = doc(collection(teacherDb, "students"));
+  const requestedAt = new Date();
+  return runTransaction(teacherDb, async (transaction) => {
+    const initial = buildAdminStudentPaths({
+      adminUid: admin.uid,
+      studentName,
+      requestedAt,
+      sequence: 1,
+    });
+    const counterRef = doc(teacherDb, initial.counterPath);
+    const counterSnapshot = await transaction.get(counterRef);
+    const sequence = counterSnapshot.exists()
+      ? (counterSnapshot.data().nextSequence ?? 1)
+      : 1;
+    const paths = buildAdminStudentPaths({
+      adminUid: admin.uid,
+      studentName,
+      requestedAt,
+      sequence,
+    });
+    const writes = planAdminStudentCreation({
+      adminUid: admin.uid,
+      studentId: studentRef.id,
+      studentName: paths.studentName,
+      studentCode: paths.studentCode,
+      sequence,
+    });
+    transaction.set(studentRef, {
+      ...writes.student,
+      createdAt: serverTimestamp(),
+    });
+    transaction.set(doc(teacherDb, paths.entryPath), writes.entry);
+    transaction.set(
+      doc(teacherDb, paths.linkCollectionPath, studentRef.id),
+      { ...writes.link, createdAt: serverTimestamp() },
+    );
+    transaction.set(counterRef, { nextSequence: writes.nextSequence });
+    return {
+      studentId: studentRef.id,
+      studentName: paths.studentName,
+      studentCode: paths.studentCode,
+    };
+  });
+}
+
+export async function listAdminStudents() {
+  const admin = requireAdmin();
+  const links = await getDocs(
+    collection(teacherDb, "adminStudentLinks", admin.uid, "students"),
+  );
+  const snapshots = await Promise.all(
+    links.docs.map((link) => getDoc(doc(teacherDb, "students", link.id))),
+  );
+  return snapshots
+    .filter((snapshot) => snapshot.exists())
+    .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
+}
+
+export async function listAttemptsForStudentIds(studentIds) {
+  requireAdmin();
+  if (studentIds.length === 0) return [];
+  const chunks = [];
+  for (let index = 0; index < studentIds.length; index += 30) {
+    chunks.push(studentIds.slice(index, index + 30));
+  }
+  const snapshots = await Promise.all(
+    chunks.map((ids) =>
+      getDocs(
+        query(
+          collection(teacherDb, "quizAttempts"),
+          where("studentId", "in", ids),
+        ),
+      ),
+    ),
+  );
+  return snapshots
+    .flatMap((snapshot) =>
+      snapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+    )
+    .sort(newestFirst);
 }
 
 export function subscribeToPendingRequests(callback) {
