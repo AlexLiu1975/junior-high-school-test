@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   approveParent,
   approveTeacher,
+  createAdminStudent,
+  listAdminStudents,
   listAttemptsForAccess,
+  listAttemptsForStudentIds,
   listStudentsForAccess,
   loadOwnAccess,
   onTeacherAuthStateChanged,
@@ -12,7 +15,13 @@ import {
   subscribeToPendingRequests,
   submitAccessRequest,
 } from "./teacherFirebase.js";
+import { getAdminViewData } from "./adminModeDomain.js";
 import { getPortalState } from "./teacherDomain.js";
+
+const activeModeClass =
+  "rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50";
+const inactiveModeClass =
+  "rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50";
 
 const formatTime = (timestamp) => {
   const date = timestamp?.toDate?.();
@@ -40,8 +49,42 @@ export default function TeacherApp() {
   const [busyRequest, setBusyRequest] = useState("");
   const [generatedCode, setGeneratedCode] = useState("");
   const [error, setError] = useState("");
+  const [adminMode, setAdminMode] = useState("manage");
+  const [adminStudents, setAdminStudents] = useState([]);
+  const [adminAttempts, setAdminAttempts] = useState([]);
+  const [adminStudentName, setAdminStudentName] = useState("");
+  const [adminGeneratedCode, setAdminGeneratedCode] = useState("");
+  const [adminDataLoading, setAdminDataLoading] = useState(false);
+  const [adminDataError, setAdminDataError] = useState("");
+  const adminLoadVersion = useRef(0);
+  const adminCreateInFlight = useRef(false);
 
   const portalState = getPortalState({ user, request, access });
+
+  const loadAdminStudentData = useCallback(async () => {
+    const version = adminLoadVersion.current + 1;
+    adminLoadVersion.current = version;
+    setAdminDataLoading(true);
+    setAdminDataError("");
+    try {
+      const nextStudents = await listAdminStudents();
+      const nextAttempts = await listAttemptsForStudentIds(
+        nextStudents.map((student) => student.id),
+      );
+      if (adminLoadVersion.current !== version) return;
+      setAdminStudents(nextStudents);
+      setAdminAttempts(nextAttempts);
+    } catch (caught) {
+      console.error(caught);
+      if (adminLoadVersion.current === version) {
+        setAdminDataError("無法載入我的學生或測驗紀錄，請稍後重試。");
+      }
+    } finally {
+      if (adminLoadVersion.current === version) {
+        setAdminDataLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -56,6 +99,13 @@ export default function TeacherApp() {
         setAccess(null);
         setAttempts([]);
         setStudents([]);
+        setAdminMode("manage");
+        setAdminStudents([]);
+        setAdminAttempts([]);
+        setAdminStudentName("");
+        setAdminGeneratedCode("");
+        setAdminDataError("");
+        adminLoadVersion.current += 1;
         try {
           if (nextUser) {
             const own = await loadOwnAccess(nextUser.uid);
@@ -96,6 +146,18 @@ export default function TeacherApp() {
   }, []);
 
   useEffect(() => {
+    if (portalState === "admin" && adminMode === "students") {
+      void loadAdminStudentData();
+      return () => {
+        adminLoadVersion.current += 1;
+      };
+    }
+    adminLoadVersion.current += 1;
+    setAdminDataLoading(false);
+    return undefined;
+  }, [adminMode, loadAdminStudentData, portalState]);
+
+  useEffect(() => {
     if (portalState !== "admin") {
       setPendingRequests([]);
       return undefined;
@@ -109,15 +171,38 @@ export default function TeacherApp() {
     }
   }, [portalState]);
 
+  const viewData = useMemo(
+    () =>
+      portalState === "admin"
+        ? getAdminViewData({
+            mode: adminMode,
+            allAttempts: attempts,
+            ownStudents: adminStudents,
+            ownAttempts: adminAttempts,
+          })
+        : { students, attempts },
+    [
+      adminAttempts,
+      adminMode,
+      adminStudents,
+      attempts,
+      portalState,
+      students,
+    ],
+  );
+  const adminStudentView = portalState === "admin" && adminMode === "students";
+  const viewDataLoading = adminStudentView && adminDataLoading;
+  const viewDataError = adminStudentView ? adminDataError : "";
+
   const visibleAttempts = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase("zh-TW");
-    if (!keyword) return attempts;
-    return attempts.filter((attempt) =>
+    if (!keyword) return viewData.attempts;
+    return viewData.attempts.filter((attempt) =>
       [attempt.studentName, attempt.studentCode, attempt.quizTitle]
         .filter(Boolean)
         .some((value) => value.toLocaleLowerCase("zh-TW").includes(keyword)),
     );
-  }, [attempts, search]);
+  }, [search, viewData.attempts]);
 
   const apply = async (event) => {
     event.preventDefault();
@@ -170,6 +255,43 @@ export default function TeacherApp() {
     }
   };
 
+  const createOwnStudent = async (event) => {
+    event.preventDefault();
+    if (adminCreateInFlight.current) return;
+    setError("");
+    setAdminGeneratedCode("");
+    const normalizedName = adminStudentName.trim();
+    if (
+      !normalizedName ||
+      normalizedName.length > 40 ||
+      normalizedName.includes("/")
+    ) {
+      setError("請填寫正確的學生姓名。");
+      return;
+    }
+
+    adminCreateInFlight.current = true;
+    setWorking(true);
+    try {
+      const result = await createAdminStudent(normalizedName);
+      setAdminStudentName("");
+      setAdminGeneratedCode(
+        `${result.studentName} 的學生專屬代碼：${result.studentCode}`,
+      );
+      await loadAdminStudentData();
+    } catch (caught) {
+      console.error(caught);
+      setError(
+        caught?.message === "daily-code-limit"
+          ? "今天建立的學生數量已達上限"
+          : "學生建立失敗，資料未變更，請稍後重試",
+      );
+    } finally {
+      adminCreateInFlight.current = false;
+      setWorking(false);
+    }
+  };
+
   if (loading) return <Page><p>正在載入權限…</p></Page>;
 
   return (
@@ -181,7 +303,7 @@ export default function TeacherApp() {
           <p className="mt-2 text-sm text-slate-600">每一次學生作答都會獨立保存。</p>
         </div>
         {user && (
-          <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm" onClick={signOutTeacher}>
+          <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:opacity-50" disabled={working} onClick={signOutTeacher}>
             登出
           </button>
         )}
@@ -225,12 +347,74 @@ export default function TeacherApp() {
 
       {["teacher", "parent", "admin"].includes(portalState) && (
         <>
+          {portalState === "admin" && (
+            <div className="mb-5 flex justify-end">
+              <div className="flex rounded-xl border bg-white p-1">
+                <button
+                  aria-pressed={adminMode === "manage"}
+                  className={adminMode === "manage" ? activeModeClass : inactiveModeClass}
+                  disabled={working}
+                  onClick={() => setAdminMode("manage")}
+                  type="button"
+                >
+                  管理模式
+                </button>
+                <button
+                  aria-pressed={adminMode === "students"}
+                  className={adminMode === "students" ? activeModeClass : inactiveModeClass}
+                  disabled={working}
+                  onClick={() => setAdminMode("students")}
+                  type="button"
+                >
+                  我的學生
+                </button>
+              </div>
+            </div>
+          )}
           <Notice>
-            {portalState === "admin" ? "管理員模式：可查看全部測驗紀錄。" : portalState === "teacher" ? "教師權限：可查看全部測驗紀錄。" : "家長權限：只顯示已核准學生的紀錄。"}
+            {portalState === "admin"
+              ? adminMode === "manage"
+                ? "管理員模式：可查看全部測驗紀錄。"
+                : "我的學生：只顯示您建立的學生與測驗紀錄。"
+              : portalState === "teacher"
+                ? "教師權限：可查看全部測驗紀錄。"
+                : "家長權限：只顯示已核准學生的紀錄。"}
           </Notice>
-          {students.length > 0 && (
+          {portalState === "admin" && adminMode === "students" && (
+            <section className="mb-5 rounded-2xl border bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-bold">建立我的學生</h2>
+              <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end" onSubmit={createOwnStudent}>
+                <div>
+                  <label className="block font-semibold" htmlFor="admin-student-name">學生姓名</label>
+                  <input
+                    className="mt-2 w-full rounded-lg border p-3"
+                    id="admin-student-name"
+                    maxLength={40}
+                    required
+                    value={adminStudentName}
+                    onChange={(event) => setAdminStudentName(event.target.value)}
+                  />
+                </div>
+                <button className="rounded-lg bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50" disabled={working} type="submit">
+                  {working ? "建立中…" : "建立學生與專屬代碼"}
+                </button>
+              </form>
+              {adminGeneratedCode && (
+                <p aria-live="polite" className="mt-4 font-semibold text-emerald-800">
+                  {adminGeneratedCode}
+                </p>
+              )}
+            </section>
+          )}
+          {viewDataError && (
+            <Notice tone="error">{viewDataError}</Notice>
+          )}
+          {!viewDataLoading && !viewDataError && adminStudentView && viewData.students.length === 0 && (
+            <p className="mb-5 rounded-xl border border-dashed border-slate-300 p-5 text-center text-slate-500">目前尚未建立學生。</p>
+          )}
+          {!viewDataLoading && viewData.students.length > 0 && (
             <section className="mb-5 grid gap-3 sm:grid-cols-2">
-              {students.map((student) => (
+              {viewData.students.map((student) => (
                 <div className="rounded-xl border bg-white p-4" key={student.id}>
                   <p className="font-bold">{student.name}</p>
                   <p className="mt-1 font-mono text-sm text-emerald-800">專屬代碼：{student.code}</p>
@@ -238,7 +422,7 @@ export default function TeacherApp() {
               ))}
             </section>
           )}
-          {portalState === "admin" && (
+          {portalState === "admin" && adminMode === "manage" && (
             <section className="mb-6 overflow-hidden rounded-2xl border bg-white shadow-sm">
               <div className="border-b p-5">
                 <h2 className="text-xl font-bold">待審核申請</h2>
@@ -265,7 +449,7 @@ export default function TeacherApp() {
           )}
           <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
             <div className="border-b p-4">
-              <input className="w-full rounded-lg border p-3" placeholder="搜尋姓名、代碼或試卷" value={search} onChange={(event) => setSearch(event.target.value)} />
+              <input aria-label="搜尋測驗紀錄" className="w-full rounded-lg border p-3" placeholder="搜尋姓名、代碼或試卷" value={search} onChange={(event) => setSearch(event.target.value)} />
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -273,7 +457,7 @@ export default function TeacherApp() {
                   <tr><th className="p-3">時間</th><th className="p-3">學生</th><th className="p-3">試卷</th><th className="p-3">成績</th></tr>
                 </thead>
                 <tbody>
-                  {visibleAttempts.map((attempt) => (
+                  {!viewDataLoading && visibleAttempts.map((attempt) => (
                     <tr className="border-t" key={attempt.id}>
                       <td className="whitespace-nowrap p-3">{formatTime(attempt.submittedAt)}</td>
                       <td className="p-3"><strong>{attempt.studentName}</strong><br /><span className="font-mono text-xs text-slate-500">{attempt.studentCode}</span></td>
@@ -281,7 +465,9 @@ export default function TeacherApp() {
                       <td className="whitespace-nowrap p-3 font-semibold">{attempt.correctCount} / {attempt.totalQuestions}</td>
                     </tr>
                   ))}
-                  {visibleAttempts.length === 0 && <tr><td className="p-7 text-center text-slate-500" colSpan={4}>目前沒有符合的測驗紀錄。</td></tr>}
+                  {viewDataLoading && <tr><td className="p-7 text-center text-slate-500" colSpan={4}>正在載入我的學生與測驗紀錄…</td></tr>}
+                  {!viewDataLoading && viewDataError && <tr><td className="p-7 text-center text-slate-500" colSpan={4}>測驗紀錄載入未完成。</td></tr>}
+                  {!viewDataLoading && !viewDataError && visibleAttempts.length === 0 && <tr><td className="p-7 text-center text-slate-500" colSpan={4}>目前沒有符合的測驗紀錄。</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -298,5 +484,5 @@ function Page({ children }) {
 
 function Notice({ children, tone = "info" }) {
   const style = tone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-900";
-  return <div className={`mb-5 rounded-xl border p-4 ${style}`}>{children}</div>;
+  return <div className={`mb-5 rounded-xl border p-4 ${style}`} role={tone === "error" ? "alert" : undefined}>{children}</div>;
 }
