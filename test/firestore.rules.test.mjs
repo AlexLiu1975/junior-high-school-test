@@ -9,6 +9,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -48,6 +49,9 @@ if (emulatorAvailable) {
       });
       await setDoc(doc(db, "adminStudentLinks/admin-uid/students/admin-student-1"), {
         studentId: "admin-student-1",
+      });
+      await setDoc(doc(db, "adminStudentLinks/other-admin-uid/students/other-student"), {
+        studentId: "other-student",
       });
       await setDoc(doc(db, "viewerAccess/parent-uid"), {
         uid: "parent-uid",
@@ -169,7 +173,16 @@ rulesTest("only the verified administrator manages own student links", async () 
 
   const link = { studentId: "new-admin-student", createdAt: serverTimestamp() };
   await assertSucceeds(
+    getDoc(doc(adminDb, "adminStudentLinks/admin-uid/students/admin-student-1")),
+  );
+  await assertSucceeds(
     setDoc(doc(adminDb, "adminStudentLinks/admin-uid/students/new-admin-student"), link),
+  );
+  await assertFails(
+    getDoc(doc(adminDb, "adminStudentLinks/other-admin-uid/students/other-student")),
+  );
+  await assertFails(
+    setDoc(doc(adminDb, "adminStudentLinks/other-admin-uid/students/attack"), link),
   );
   await assertFails(
     setDoc(doc(parentDb, "adminStudentLinks/parent-uid/students/attack"), link),
