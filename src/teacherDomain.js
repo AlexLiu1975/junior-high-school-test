@@ -46,6 +46,28 @@ export function formatStudentCode(date, sequence) {
   return `${values.year}${values.month}${values.day}-${String(sequence).padStart(3, "0")}`;
 }
 
+export function buildAdminStudentPaths({
+  adminUid,
+  studentName,
+  requestedAt,
+  sequence,
+}) {
+  if (!adminUid) throw new Error("invalid-admin-uid");
+  const name = normalizeStudentName(studentName);
+  if (!name || name.length > 40 || name.includes("/")) {
+    throw new Error("invalid-student-name");
+  }
+  const studentCode = formatStudentCode(requestedAt, sequence);
+  const dateKey = studentCode.slice(0, 8);
+  return {
+    studentName: name,
+    studentCode,
+    counterPath: `dailyCounters/${dateKey}`,
+    entryPath: `studentEntries/${studentCode}/names/${name}`,
+    linkCollectionPath: `adminStudentLinks/${adminUid}/students`,
+  };
+}
+
 export function buildTeacherAccess(request) {
   return { uid: request.uid, role: "teacher", studentIds: [] };
 }

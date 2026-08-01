@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildAdminStudentPaths,
   buildParentApprovalPaths,
   buildTeacherAccess,
   formatStudentCode,
@@ -109,5 +110,44 @@ test("builds deterministic parent approval paths", () => {
         sequence: 1000,
       }),
     /daily-code-limit/,
+  );
+});
+
+test("builds admin-owned student paths with the shared daily sequence", () => {
+  assert.deepEqual(
+    buildAdminStudentPaths({
+      adminUid: "admin-uid",
+      studentName: " 王小明 ",
+      requestedAt: new Date("2026-07-31T16:30:00.000Z"),
+      sequence: 7,
+    }),
+    {
+      studentName: "王小明",
+      studentCode: "20260801-007",
+      counterPath: "dailyCounters/20260801",
+      entryPath: "studentEntries/20260801-007/names/王小明",
+      linkCollectionPath: "adminStudentLinks/admin-uid/students",
+    },
+  );
+});
+
+test("rejects invalid admin-owned student input", () => {
+  assert.throws(
+    () => buildAdminStudentPaths({
+      adminUid: "",
+      studentName: "王小明",
+      requestedAt: new Date(),
+      sequence: 1,
+    }),
+    /invalid-admin-uid/,
+  );
+  assert.throws(
+    () => buildAdminStudentPaths({
+      adminUid: "admin-uid",
+      studentName: "王/小明",
+      requestedAt: new Date(),
+      sequence: 1,
+    }),
+    /invalid-student-name/,
   );
 });
