@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import {
@@ -14,9 +15,14 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
+import {
+  runAdminStudentCreation,
+  runParentApproval,
+} from "../src/teacherTransactions.js";
 
 let environment;
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -228,4 +234,106 @@ rulesTest("only the verified administrator creates direct student records", asyn
   await assertFails(
     setDoc(doc(parentDb, "dailyCounters/20260801"), { nextSequence: 999 }),
   );
+});
+
+rulesTest("a rejected admin ownership link rolls back every creation write", async () => {
+  const adminDb = environment
+    .authenticatedContext("admin-uid", auth("admin-uid", "beyle931224@gmail.com"))
+    .firestore();
+  const requestedAt = new Date("2030-01-14T16:30:00.000Z");
+
+  await assert.rejects(
+    runAdminStudentCreation({
+      db: adminDb,
+      admin: { uid: "different-admin-uid" },
+      studentName: "回滾學生",
+      requestedAt,
+    }),
+  );
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const students = await getDocs(
+      query(collection(db, "students"), where("code", "==", "20300115-001")),
+    );
+    const entry = await getDoc(
+      doc(db, "studentEntries/20300115-001/names/回滾學生"),
+    );
+    const links = await getDocs(
+      collection(db, "adminStudentLinks/different-admin-uid/students"),
+    );
+    const counter = await getDoc(doc(db, "dailyCounters/20300115"));
+
+    assert.equal(students.empty, true);
+    assert.equal(entry.exists(), false);
+    assert.equal(links.empty, true);
+    assert.equal(counter.exists(), false);
+  });
+});
+
+rulesTest("admin and parent creation share one contended daily sequence", async () => {
+  const admin = { uid: "admin-uid" };
+  const adminDb = environment
+    .authenticatedContext(admin.uid, auth(admin.uid, "beyle931224@gmail.com"))
+    .firestore();
+  const requestedAt = new Date("2030-01-15T16:30:00.000Z");
+  const parentUid = "concurrent-parent-uid";
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "accessRequests", parentUid), {
+      uid: parentUid,
+      email: "concurrent-parent@example.com",
+      role: "parent",
+      studentName: "並行家長學生",
+      status: "pending",
+      requestedAt: Timestamp.fromDate(requestedAt),
+    });
+  });
+
+  const [adminResult, parentResult] = await Promise.all([
+    runAdminStudentCreation({
+      db: adminDb,
+      admin,
+      studentName: "並行管理學生",
+      requestedAt,
+    }),
+    runParentApproval({
+      db: adminDb,
+      admin,
+      request: { uid: parentUid },
+    }),
+  ]);
+
+  assert.deepEqual(
+    [adminResult.studentCode, parentResult.studentCode].sort(),
+    ["20300116-001", "20300116-002"],
+  );
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const adminStudent = await getDoc(doc(db, "students", adminResult.studentId));
+    const parentStudent = await getDoc(doc(db, "students", parentResult.studentId));
+    const adminEntry = await getDoc(
+      doc(db, `studentEntries/${adminResult.studentCode}/names/並行管理學生`),
+    );
+    const parentEntry = await getDoc(
+      doc(db, `studentEntries/${parentResult.studentCode}/names/並行家長學生`),
+    );
+    const adminLink = await getDoc(
+      doc(db, "adminStudentLinks", admin.uid, "students", adminResult.studentId),
+    );
+    const parentAccess = await getDoc(doc(db, "viewerAccess", parentUid));
+    const parentRequest = await getDoc(doc(db, "accessRequests", parentUid));
+    const counter = await getDoc(doc(db, "dailyCounters/20300116"));
+
+    assert.equal(adminStudent.data().code, adminResult.studentCode);
+    assert.equal(parentStudent.data().code, parentResult.studentCode);
+    assert.equal(adminEntry.data().studentId, adminResult.studentId);
+    assert.equal(parentEntry.data().studentId, parentResult.studentId);
+    assert.equal(adminLink.data().studentId, adminResult.studentId);
+    assert.deepEqual(parentAccess.data().studentIds, [parentResult.studentId]);
+    assert.equal(parentRequest.data().status, "approved");
+    assert.equal(parentRequest.data().studentId, parentResult.studentId);
+    assert.equal(counter.data().nextSequence, 3);
+  });
 });
