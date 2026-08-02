@@ -77,6 +77,10 @@ if (emulatorAvailable) {
         studentId: "student-2",
         studentUid: "other-student",
       });
+      await setDoc(doc(db, "attemptPrivate/existing-student-1"), {
+        maskedIp: "203.0.113.xxx",
+        createdAt: Timestamp.fromDate(new Date("2026-08-02T04:05:06.000Z")),
+      });
       await setDoc(doc(db, "accessRequests/parent-uid"), {
         uid: "parent-uid",
         email: "parent@example.com",
@@ -92,12 +96,9 @@ if (emulatorAvailable) {
   });
 }
 
-rulesTest("student may create one valid owned attempt but cannot mutate it", async () => {
+rulesTest("students cannot directly write server-managed progress or attempts", async () => {
   const studentDb = environment
     .authenticatedContext("student-uid", auth("student-uid", "student@example.com"))
-    .firestore();
-  const attackerDb = environment
-    .authenticatedContext("attacker-uid", auth("attacker-uid", "attacker@example.com"))
     .firestore();
   const validAttempt = {
     quizId: "quiz-1",
@@ -111,10 +112,44 @@ rulesTest("student may create one valid owned attempt but cannot mutate it", asy
     wrongCount: 4,
     submittedAt: serverTimestamp(),
   };
-  await assertSucceeds(setDoc(doc(studentDb, "quizAttempts/new-attempt"), validAttempt));
-  await assertFails(setDoc(doc(attackerDb, "quizAttempts/attack"), validAttempt));
-  await assertFails(updateDoc(doc(studentDb, "quizAttempts/new-attempt"), { score: 100 }));
-  await assertFails(deleteDoc(doc(studentDb, "quizAttempts/new-attempt")));
+  await assertFails(
+    setDoc(doc(studentDb, "studentProgress/student-1/quizzes/quiz-1"), {
+      activeAttempt: {},
+    }),
+  );
+  await assertFails(setDoc(doc(studentDb, "quizAttempts/direct-write"), validAttempt));
+  await assertFails(updateDoc(doc(studentDb, "quizAttempts/existing-student-1"), { score: 100 }));
+  await assertFails(deleteDoc(doc(studentDb, "quizAttempts/existing-student-1")));
+});
+
+rulesTest("only the verified Google administrator reads private attempt metadata", async () => {
+  const adminDb = environment
+    .authenticatedContext("admin-uid", auth("admin-uid", "beyle931224@gmail.com"))
+    .firestore();
+  const teacherDb = environment
+    .authenticatedContext("teacher-uid", auth("teacher-uid", "teacher@example.com"))
+    .firestore();
+  const parentDb = environment
+    .authenticatedContext("parent-uid", auth("parent-uid", "parent@example.com"))
+    .firestore();
+  const passwordAdminDb = environment
+    .authenticatedContext("password-admin", {
+      email: "beyle931224@gmail.com",
+      email_verified: true,
+      firebase: { sign_in_provider: "password" },
+    })
+    .firestore();
+
+  await assertFails(getDoc(doc(teacherDb, "attemptPrivate/existing-student-1")));
+  await assertFails(getDoc(doc(parentDb, "attemptPrivate/existing-student-1")));
+  await assertFails(getDoc(doc(passwordAdminDb, "attemptPrivate/existing-student-1")));
+  await assertSucceeds(getDoc(doc(adminDb, "attemptPrivate/existing-student-1")));
+  await assertFails(
+    setDoc(doc(adminDb, "attemptPrivate/direct-write"), {
+      maskedIp: "203.0.113.xxx",
+      createdAt: serverTimestamp(),
+    }),
+  );
 });
 
 rulesTest("record reads obey pending, teacher, and parent scopes", async () => {
