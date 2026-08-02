@@ -16,6 +16,7 @@ import {
   scoreQuiz,
 } from "./quizRandomization";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
+import HomeLink from "./HomeLink.jsx";
 
 /* ---------------------------------------------------------
    資料：第 1 回 第1、2單元 — 細胞與顯微鏡（20題）
@@ -313,6 +314,7 @@ export default function App() {
       `}</style>
 
       <div className="max-w-2xl mx-auto">
+        <HomeLink className="mb-5" />
         <div className="rounded-t-md px-5 py-3 flex items-center justify-between" style={{ background: "#33261C" }}>
           <div>
             <p style={{ ...monoStyle, color: "#C9BFA8" }} className="text-[10px] tracking-[0.2em] uppercase">

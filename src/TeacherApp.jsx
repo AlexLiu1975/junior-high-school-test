@@ -17,6 +17,8 @@ import {
 } from "./teacherFirebase.js";
 import { getAdminViewData } from "./adminModeDomain.js";
 import { getPortalState } from "./teacherDomain.js";
+import HomeLink from "./HomeLink.jsx";
+import { getTeacherEntryDescription } from "./entryDomain.js";
 
 const activeModeClass =
   "rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50";
@@ -35,6 +37,8 @@ const formatTime = (timestamp) => {
 };
 
 export default function TeacherApp() {
+  const entry = new URLSearchParams(window.location.search).get("entry");
+  const signedOutDescription = getTeacherEntryDescription(entry);
   const [user, setUser] = useState(null);
   const [request, setRequest] = useState(null);
   const [access, setAccess] = useState(null);
@@ -296,6 +300,7 @@ export default function TeacherApp() {
 
   return (
     <Page>
+      <HomeLink className="mb-4" />
       <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold tracking-[0.2em] text-emerald-700">測驗管理</p>
@@ -314,7 +319,7 @@ export default function TeacherApp() {
       {portalState === "signed-out" && (
         <section className="rounded-2xl border bg-white p-7 shadow-sm">
           <h2 className="text-xl font-bold">使用 Google 帳號登入</h2>
-          <p className="mt-2 text-slate-600">首次登入後，可申請教師或家長查閱權限。</p>
+          <p className="mt-2 text-slate-600">{signedOutDescription}</p>
           <button className="mt-6 rounded-lg bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50" disabled={working} onClick={login}>
             {working ? "登入中…" : "使用 Google 登入"}
           </button>
