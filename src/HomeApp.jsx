@@ -31,7 +31,7 @@ export default function HomeApp() {
                 <li key={entry.id}>
                   <a
                     href={`${import.meta.env.BASE_URL}${entry.href}`}
-                    className={`group block rounded-2xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-300 ${entry.primary ? primaryStyles : secondaryStyles}`}
+                    className={`group block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-900 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-50 ${entry.primary ? primaryStyles : secondaryStyles}`}
                   >
                     <span className="flex min-h-28 items-center gap-4 px-5 py-5 sm:gap-6 sm:px-7">
                       <span

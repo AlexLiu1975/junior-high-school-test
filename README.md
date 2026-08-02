@@ -59,7 +59,7 @@ npm install
 npm run dev
 ```
 
-學生頁預設為 `http://localhost:5173/`，教師／家長頁為 `http://localhost:5173/teacher.html`。
+入口首頁預設為 `http://localhost:5173/`，學生測驗頁為 `http://localhost:5173/quiz.html`，教師／家長頁為 `http://localhost:5173/teacher.html`。
 
 ## 驗證
 

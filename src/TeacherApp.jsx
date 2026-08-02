@@ -296,11 +296,18 @@ export default function TeacherApp() {
     }
   };
 
-  if (loading) return <Page><p>正在載入權限…</p></Page>;
+  if (loading) {
+    return (
+      <Page>
+        <HomeLink className="mb-4" variant="teacher" />
+        <p>正在載入權限…</p>
+      </Page>
+    );
+  }
 
   return (
     <Page>
-      <HomeLink className="mb-4" />
+      <HomeLink className="mb-4" variant="teacher" />
       <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold tracking-[0.2em] text-emerald-700">測驗管理</p>

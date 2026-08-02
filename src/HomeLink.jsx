@@ -1,7 +1,13 @@
-export default function HomeLink({ className = "" }) {
+const variantStyles = {
+  teacher:
+    "text-emerald-800 hover:text-emerald-950 focus-visible:ring-emerald-900 focus-visible:ring-offset-stone-50",
+  quiz: "text-emerald-50 hover:text-white focus-visible:ring-white focus-visible:ring-offset-[#1F2E23]",
+};
+
+export default function HomeLink({ className = "", variant = "teacher" }) {
   return (
     <a
-      className={`inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${className}`}
+      className={`inline-flex items-center gap-2 rounded-sm text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${variantStyles[variant]} ${className}`}
       href={import.meta.env.BASE_URL}
     >
       <span aria-hidden="true">←</span>

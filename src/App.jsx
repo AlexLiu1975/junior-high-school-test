@@ -290,10 +290,15 @@ export default function App() {
 
   if (!loaded) {
     return (
-      <div style={{ ...fontStyle, background: "#1F2E23" }} className="min-h-screen flex items-center justify-center">
-        <p style={{ color: PAPER }} className="text-sm tracking-wide">
-          載入中…
-        </p>
+      <div style={{ ...fontStyle, background: "#1F2E23" }} className="min-h-screen w-full px-4 py-8">
+        <div className="mx-auto max-w-2xl">
+          <HomeLink className="mb-5" variant="quiz" />
+          <div className="flex min-h-[calc(100vh-7rem)] items-center justify-center">
+            <p style={{ color: PAPER }} className="text-sm tracking-wide">
+              載入中…
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -314,7 +319,7 @@ export default function App() {
       `}</style>
 
       <div className="max-w-2xl mx-auto">
-        <HomeLink className="mb-5" />
+        <HomeLink className="mb-5" variant="quiz" />
         <div className="rounded-t-md px-5 py-3 flex items-center justify-between" style={{ background: "#33261C" }}>
           <div>
             <p style={{ ...monoStyle, color: "#C9BFA8" }} className="text-[10px] tracking-[0.2em] uppercase">
