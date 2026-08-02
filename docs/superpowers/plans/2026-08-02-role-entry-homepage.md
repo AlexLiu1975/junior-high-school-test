@@ -288,45 +288,18 @@ git commit -m "Add role entry homepage"
 - Create: `src/HomeLink.jsx`
 - Modify: `src/App.jsx`
 - Modify: `src/TeacherApp.jsx`
-- Modify: `test/pages-deployment.test.mjs`
 
 **Interfaces:**
 - Consumes: `getTeacherEntryDescription(entry)` from Task 1 and `import.meta.env.BASE_URL`。
 - Produces: shared `HomeLink({ className })` component and entry-aware signed-out teacher copy。
 
-- [ ] **Step 1: Write failing source-contract tests**
+- [ ] **Step 1: Run the existing navigation contract tests as a baseline**
 
-在 `test/pages-deployment.test.mjs` 新增：
+Run: `node --test test/entry-domain.test.mjs test/pages-deployment.test.mjs`
 
-```js
-test("quiz and teacher pages expose the shared home link", async () => {
-  const [quizSource, teacherSource] = await Promise.all([
-    readFile(new URL("../src/App.jsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/TeacherApp.jsx", import.meta.url), "utf8"),
-  ]);
+Expected: all Task 1 and Task 2 navigation/build contracts PASS before UI wiring.
 
-  assert.match(quizSource, /import HomeLink from "\.\/HomeLink\.jsx"/);
-  assert.match(teacherSource, /import HomeLink from "\.\/HomeLink\.jsx"/);
-});
-
-test("teacher page derives signed-out copy from the entry parameter", async () => {
-  const teacherSource = await readFile(
-    new URL("../src/TeacherApp.jsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.match(teacherSource, /getTeacherEntryDescription/);
-  assert.match(teacherSource, /URLSearchParams\(window\.location\.search\)/);
-});
-```
-
-- [ ] **Step 2: Run the source-contract tests and verify RED**
-
-Run: `node --test test/pages-deployment.test.mjs`
-
-Expected: FAIL because `HomeLink` and entry-aware copy are not wired.
-
-- [ ] **Step 3: Implement the shared home link**
+- [ ] **Step 2: Implement the shared home link**
 
 建立 `src/HomeLink.jsx`：
 
@@ -344,7 +317,7 @@ export default function HomeLink({ className = "" }) {
 }
 ```
 
-- [ ] **Step 4: Add `HomeLink` to the quiz page**
+- [ ] **Step 3: Add `HomeLink` to the quiz page**
 
 在 `src/App.jsx` 匯入 `HomeLink`，並在所有測驗 view 共用的最外層頁首區域加入：
 
@@ -354,7 +327,7 @@ export default function HomeLink({ className = "" }) {
 
 連結不可清除或提交測驗狀態；它只執行一般頁面導覽。
 
-- [ ] **Step 5: Add entry-aware copy and `HomeLink` to the teacher page**
+- [ ] **Step 4: Add entry-aware copy and `HomeLink` to the teacher page**
 
 在 `src/TeacherApp.jsx`：
 
@@ -378,7 +351,7 @@ const signedOutDescription = getTeacherEntryDescription(entry);
 
 不得用 `entry` 修改 `role` state、`portalState`、Firebase 查詢或管理員判斷。
 
-- [ ] **Step 6: Run focused, full, lint, and build verification**
+- [ ] **Step 5: Run focused, full, lint, and build verification**
 
 Run: `node --test test/pages-deployment.test.mjs test/entry-domain.test.mjs`
 
@@ -396,10 +369,18 @@ Run: `npm run build`
 
 Expected: exit 0 and all three HTML files exist under `dist/`.
 
-- [ ] **Step 7: Commit navigation integration**
+Run:
 
 ```bash
-git add src/HomeLink.jsx src/App.jsx src/TeacherApp.jsx test/pages-deployment.test.mjs
+rg -n "返回首頁" dist/assets/*.js
+```
+
+Expected: the production bundle contains the shared return-home label. Task 4 performs the browser behavior check for both links.
+
+- [ ] **Step 6: Commit navigation integration**
+
+```bash
+git add src/HomeLink.jsx src/App.jsx src/TeacherApp.jsx
 git commit -m "Link role pages to homepage"
 ```
 
@@ -473,4 +454,3 @@ Verify:
 - [ ] **Step 6: Record final evidence**
 
 Report the commit SHA, test counts, lint/build results, Actions run URL/status, public URLs, and any browser checks that could not be completed. Do not describe an unverified login state or Pages run as successful.
-
