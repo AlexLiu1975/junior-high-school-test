@@ -10,7 +10,8 @@ export default defineConfig({
   build: {
     rolldownOptions: {
       input: {
-        student: fileURLToPath(new URL('./index.html', import.meta.url)),
+        home: fileURLToPath(new URL('./index.html', import.meta.url)),
+        quiz: fileURLToPath(new URL('./quiz.html', import.meta.url)),
         teacher: fileURLToPath(new URL('./teacher.html', import.meta.url)),
       },
     },

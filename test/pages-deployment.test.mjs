@@ -48,3 +48,24 @@ test("teacher portal is a noindex Vite build entry", async () => {
   const { default: config } = await import("../vite.config.js");
   assert.match(config.build.rolldownOptions.input.teacher, /teacher\.html$/);
 });
+
+test("homepage, quiz, and teacher are separate Vite entries", async () => {
+  const { default: config } = await import("../vite.config.js");
+  const inputs = config.build.rolldownOptions.input;
+
+  assert.match(inputs.home, /index\.html$/);
+  assert.match(inputs.quiz, /quiz\.html$/);
+  assert.match(inputs.teacher, /teacher\.html$/);
+});
+
+test("homepage and quiz HTML load their dedicated React entries", async () => {
+  const [homeHtml, quizHtml] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../quiz.html", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(homeHtml, /src\/home-main\.jsx/);
+  assert.match(homeHtml, /<title>測驗學習平台<\/title>/);
+  assert.match(quizHtml, /src\/main\.jsx/);
+  assert.match(quizHtml, /<title>細胞與顯微鏡 隨堂測驗<\/title>/);
+});
