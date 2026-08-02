@@ -25,4 +25,14 @@ test("requires the verified Google administrator", () => {
     }),
     /admin-required/,
   );
+  assert.throws(
+    () => requireAdminAuth({
+      token: {
+        email: "beyle931224@gmail.com",
+        email_verified: false,
+        firebase: { sign_in_provider: "google.com" },
+      },
+    }),
+    /admin-required/,
+  );
 });

@@ -14,9 +14,9 @@ export function maskIp(rawIp) {
 
   if (isIP(ip) === 4) return `${ip.split(".").slice(0, 3).join(".")}.xxx`;
   if (isIP(ip) === 6) {
-    const mappedIpv4 = ip.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+    const mappedIpv4 = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
     if (mappedIpv4) {
-      return `${mappedIpv4[1]}${mappedIpv4[2].split(".").slice(0, 3).join(".")}.xxx`;
+      return `${mappedIpv4[1].split(".").slice(0, 3).join(".")}.xxx`;
     }
     const prefix = ip.split(":").filter(Boolean).slice(0, 3).join(":");
     return prefix ? `${prefix}:…` : UNKNOWN_IP;

@@ -79,6 +79,79 @@ test("normalizes only valid, whitelisted progress fields", () => {
   );
 });
 
+test("rejects malformed nested progress payload fields", () => {
+  const malformedPayloads = [
+    {
+      ...VALID_PROGRESS,
+      activeAttempt: {
+        ...VALID_PROGRESS.activeAttempt,
+        answers: { q1: "q1-o3" },
+      },
+    },
+    {
+      ...VALID_PROGRESS,
+      activeAttempt: { ...VALID_PROGRESS.activeAttempt, unexpected: true },
+    },
+    {
+      ...VALID_PROGRESS,
+      activeAttempt: {
+        attemptId: VALID_PROGRESS.activeAttempt.attemptId,
+        questionOrder: VALID_PROGRESS.activeAttempt.questionOrder,
+        optionOrder: VALID_PROGRESS.activeAttempt.optionOrder,
+        answers: VALID_PROGRESS.activeAttempt.answers,
+      },
+    },
+    {
+      ...VALID_PROGRESS,
+      activeAttempt: {
+        ...VALID_PROGRESS.activeAttempt,
+        optionOrder: {
+          ...VALID_PROGRESS.activeAttempt.optionOrder,
+          q1: ["q1-o1"],
+        },
+      },
+    },
+    {
+      ...VALID_PROGRESS,
+      reviewProgress: {
+        q1: { ...VALID_PROGRESS.reviewProgress.q1, unexpected: true },
+      },
+    },
+  ];
+
+  for (const payload of malformedPayloads) {
+    assert.throws(
+      () => normalizeProgressPayload(payload, QUIZ_DEFINITION),
+      /invalid-progress-payload/,
+    );
+  }
+});
+
+test("accepts only bounded ASCII attempt IDs", () => {
+  for (const attemptId of ["run/1", "run 1", "run\u0001", "測驗-1", "a".repeat(81)]) {
+    assert.throws(
+      () => normalizeProgressPayload({
+        ...VALID_PROGRESS,
+        activeAttempt: { ...VALID_PROGRESS.activeAttempt, attemptId },
+      }, QUIZ_DEFINITION),
+      /invalid-progress-payload/,
+    );
+  }
+});
+
+test("requires real canonical review dates", () => {
+  for (const reviewProgress of [
+    { q1: { ...VALID_PROGRESS.reviewProgress.q1, lastAttempt: "2026/02/30" } },
+    { q1: { ...VALID_PROGRESS.reviewProgress.q1, nextReview: "2026/2/03" } },
+    { q1: { ...VALID_PROGRESS.reviewProgress.q1, nextReview: "2026/04/31" } },
+  ]) {
+    assert.throws(
+      () => normalizeProgressPayload({ ...VALID_PROGRESS, reviewProgress }, QUIZ_DEFINITION),
+      /invalid-progress-payload/,
+    );
+  }
+});
+
 test("resolves a trimmed active student entry without trusting a caller student ID", async () => {
   const { db, requested } = createStudentDb({ active: true, studentId: "student-1" });
 
