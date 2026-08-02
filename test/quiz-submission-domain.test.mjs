@@ -63,6 +63,15 @@ test("unknown question and option IDs are rejected", () => {
   );
 });
 
+test("null and array payloads use the stable validation error", () => {
+  for (const payload of [null, []]) {
+    assert.throws(
+      () => validateAndScoreSubmission(payload),
+      /invalid-submission/,
+    );
+  }
+});
+
 test("submission must include every question, option, and exactly one legal answer", () => {
   const missingQuestion = validSubmission();
   missingQuestion.questionOrder.pop();

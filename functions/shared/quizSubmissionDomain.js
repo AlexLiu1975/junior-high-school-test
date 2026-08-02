@@ -18,13 +18,18 @@ function hasExactKeys(value, expectedIds) {
     && hasExactMembers(Object.keys(value), expectedIds);
 }
 
-export function validateAndScoreSubmission({
-  quizId,
-  quizVersion,
-  questionOrder,
-  optionOrder,
-  answers,
-} = {}) {
+export function validateAndScoreSubmission(payload) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    invalidSubmission();
+  }
+
+  const {
+    quizId,
+    quizVersion,
+    questionOrder,
+    optionOrder,
+    answers,
+  } = payload;
   const definition = getQuizDefinition(quizId, quizVersion);
   if (!definition) invalidSubmission();
 
