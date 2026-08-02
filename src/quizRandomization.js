@@ -18,9 +18,10 @@ export function prepareQuiz(questions, random = Math.random) {
     n: question.n,
     text: question.text,
     options: shuffleCopy(
-      question.options.map((text, index) => ({
+      question.options.map(({ id, text, correct }) => ({
+        id,
         text,
-        isCorrect: index === question.correct,
+        isCorrect: correct === true,
       })),
       random,
     ),
@@ -28,8 +29,8 @@ export function prepareQuiz(questions, random = Math.random) {
   return shuffleCopy(prepared, random);
 }
 
-export function isAnswerCorrect(question, selectedIndex) {
-  return question.options[selectedIndex]?.isCorrect === true;
+export function isAnswerCorrect(question, selectedOptionId) {
+  return question.options.find(({ id }) => id === selectedOptionId)?.isCorrect === true;
 }
 
 export function scoreQuiz(questions, answers) {

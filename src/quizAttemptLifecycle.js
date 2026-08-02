@@ -53,7 +53,10 @@ export function createQuizAttemptLifecycle() {
         .map((question, index) => ({ question, index }))
         .filter(({ question }) => wrongIds.includes(question.id))
         .map(({ question, index }) => {
-          const selectedIndex = answers[question.id];
+          const selectedOptionId = answers[question.id];
+          const selectedIndex = question.options.findIndex(
+            ({ id }) => id === selectedOptionId,
+          );
           const selectedOption = question.options[selectedIndex];
           const correctIndex = question.options.findIndex(
             ({ isCorrect }) => isCorrect,

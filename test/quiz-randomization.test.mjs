@@ -12,15 +12,23 @@ const questions = [
     id: "q1",
     n: 1,
     text: "第一題",
-    options: ["甲", "乙", "丙", "丁"],
-    correct: 1,
+    options: [
+      { id: "q1-o1", text: "甲", correct: false },
+      { id: "q1-o2", text: "乙", correct: true },
+      { id: "q1-o3", text: "丙", correct: false },
+      { id: "q1-o4", text: "丁", correct: false },
+    ],
   },
   {
     id: "q2",
     n: 2,
     text: "第二題",
-    options: ["戊", "己", "庚", "辛"],
-    correct: 3,
+    options: [
+      { id: "q2-o1", text: "戊", correct: false },
+      { id: "q2-o2", text: "己", correct: false },
+      { id: "q2-o3", text: "庚", correct: false },
+      { id: "q2-o4", text: "辛", correct: true },
+    ],
   },
 ];
 
@@ -46,14 +54,18 @@ test("prepareQuiz preserves every question and option exactly once", () => {
   for (const preparedQuestion of prepared) {
     const source = questions.find(({ id }) => id === preparedQuestion.id);
     assert.deepEqual(
-      preparedQuestion.options.map(({ text }) => text).sort(),
-      [...source.options].sort(),
+      preparedQuestion.options.map(({ id }) => id).sort(),
+      source.options.map(({ id }) => id).sort(),
     );
     assert.equal(
       preparedQuestion.options.filter(({ isCorrect }) => isCorrect).length,
       1,
     );
     assert.equal("correct" in preparedQuestion, false);
+    assert.equal(
+      preparedQuestion.options.every((option) => typeof option.id === "string"),
+      true,
+    );
   }
   assert.deepEqual(questions, sourceSnapshot);
 });
@@ -78,7 +90,7 @@ test("prepared correctness survives option randomization and scores by stable id
   const correctAnswers = Object.fromEntries(
     prepared.map((question) => [
       question.id,
-      question.options.findIndex(({ isCorrect }) => isCorrect),
+      question.options.find(({ isCorrect }) => isCorrect).id,
     ]),
   );
   assert.equal(
@@ -94,7 +106,7 @@ test("prepared correctness survives option randomization and scores by stable id
 
   const oneWrong = {
     ...correctAnswers,
-    q1: (correctAnswers.q1 + 1) % 4,
+    q1: "q1-o1",
   };
   assert.deepEqual(scoreQuiz(prepared, oneWrong), {
     correctCount: 1,

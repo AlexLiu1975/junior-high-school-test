@@ -16,38 +16,15 @@ import {
   scoreQuiz,
 } from "./quizRandomization";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
+import {
+  QUIZ_DEFINITION,
+  QUIZ_ID,
+  QUIZ_TITLE,
+} from "../functions/shared/quizDefinition.js";
 import HomeLink from "./HomeLink.jsx";
-
-/* ---------------------------------------------------------
-   資料：第 1 回 第1、2單元 — 細胞與顯微鏡（20題）
---------------------------------------------------------- */
-const QUESTIONS = [
-  { id: "q1", n: 1, text: "關於英國科學家虎克的敘述，下列何者錯誤？", options: ["他是史上第一位描述細胞的科學家", "他用自製的顯微鏡觀察軟木塞薄片", "他所看見的格狀構造是植物細胞的細胞膜（壁）", "他所發現的細胞已不具生命現象"], correct: 2 },
-  { id: "q2", n: 2, text: "當阿拉蕾長時間配戴隱形眼鏡造成眼睛過於乾澀，通常會點上一、兩滴人工淚液以舒緩症狀。請問人工淚液與下列何種液體成分相似，所以可減緩眼睛乾澀的問題？", options: ["礦泉水", "白開水", "生理食鹽水", "濃食鹽水"], correct: 2 },
-  { id: "q3", n: 3, text: "下列何種物質不需要經由細胞膜上的蛋白質通道，可以直接利用擴散作用進出細胞？", options: ["二氧化碳", "蛋白質", "礦物質", "葡萄糖"], correct: 0 },
-  { id: "q4", n: 4, text: "下列哪一種生物的細胞中不含有葉綠體？", options: ["人類", "榕樹", "大王椰子", "高麗菜"], correct: 0 },
-  { id: "q5", n: 5, text: "將動物細胞置入清水時，細胞會膨脹，甚至可能破裂；若將植物細胞置入清水時，細胞僅略為膨脹，這是因為植物有哪一個構造導致此種差異？", options: ["細胞膜", "細胞壁", "葉綠體", "粒線體"], correct: 1 },
-  { id: "q6", n: 6, text: "接近考試期間，常有許多人因臨時抱佛腳熬夜唸書，導致早上賴床，來不及吃早餐，而在升旗時，因體力不支而暈倒。當遇到此情況時，學校護理師阿姨常會讓這些學生喝葡萄糖水，請問此目的為何？", options: ["葡萄糖水可被細胞直接利用", "葡萄糖水具有較多的養分", "葡萄糖為構成人體的主要組成成分", "葡萄糖較易轉換成肝糖儲存"], correct: 0 },
-  { id: "q7", n: 7, text: "物質進出細胞的模式圖中，甲、乙、丙、丁是物質通過細胞膜的途徑與擴散方向。細胞內進行代謝需要外界的氧氣，代謝形成的二氧化碳須排出細胞。根據前文敘述，氧氣與二氧化碳進出細胞的擴散方向，下列何者正確？", options: ["甲：二氧化碳；乙：氧氣", "乙：氧氣；丁：二氧化碳", "甲：二氧化碳；丙：氧氣", "丙：氧氣；丁：二氧化碳"], correct: 2 },
-  { id: "q8", n: 8, text: "構成生物體的基本單位是下列何者？", options: ["細胞", "分子", "原子", "葡萄糖"], correct: 0 },
-  { id: "q9", n: 9, text: "細胞質內的哪個構造可以利用葡萄糖，來產生細胞所需的能量？", options: ["細胞核", "液胞（泡）", "粒線體", "細胞膜"], correct: 2 },
-  { id: "q10", n: 10, text: "小明發現水蘊草細胞的形狀和軟木栓細胞相似，都很規則且不易變形，這是因為它們都具有何種構造？", options: ["細胞核", "細胞壁", "細胞膜", "細胞質"], correct: 1 },
-  { id: "q11", n: 11, text: "下列關於顯微鏡的敘述，何者正確？", options: ["目鏡鏡頭愈短，放大倍率愈小", "光先經過目鏡，再通過物鏡", "放大倍率是目鏡與物鏡倍率相加", "要更換物鏡時可以轉動旋轉盤進行更換"], correct: 3 },
-  { id: "q12", n: 12, text: "有關觀察水中小生物的描述，下列何者錯誤？", options: ["一般不需要進行染色", "形狀似草鞋，利用纖毛移動的是草履蟲", "呈綠色且不移動的生物，一般為藻類", "當水中的小生物游出視野外，此時須儘快將物鏡倍數調高，以方便找尋"], correct: 3 },
-  { id: "q13", n: 13, text: "複式顯微鏡的調節輪可使我們看清楚物體。請問該如何正確的使用「調節輪」？", options: ["當載玻片放上載物臺時，先使用粗調節輪將低倍物鏡靠近載物臺", "轉動細調節輪時，常需要調大光圈", "通常會先用細調節輪再用粗調節輪", "調節輪可以用來調節光圈的大小"], correct: 0 },
-  { id: "q14", n: 14, text: "甲、乙是常用的顯微鏡（甲為解剖顯微鏡、乙為複式顯微鏡），有關這兩臺顯微鏡的敘述與使用時機，下列何者正確？", options: ["最大的放大倍率：甲＜乙", "甲看到的影像較為立體", "乙看到影像的方位與實物相同", "甲、乙皆適合觀察細胞標本"], correct: 2 },
-  { id: "q15", n: 15, text: "下列何種生物較適合使用解剖顯微鏡來觀察？", options: ["寬尾鳳蝶的管狀口器", "愛滋病毒", "保衛細胞", "花粉管"], correct: 0 },
-  { id: "q16", n: 16, text: "小光用顯微鏡觀察某種生物的細胞，觀察過程中只更換不同倍率的物鏡，光圈大小、光源亮度與標本皆未更動。則下列哪一個視野的亮度最暗？（提示：倍率愈大，亮度愈暗）", options: ["視野 A（低倍率、視野中細胞數目多）", "視野 B", "視野 C（高倍率、視野中細胞數目少、細胞最大）", "視野 D"], correct: 2 },
-  { id: "q17", n: 17, text: "關於複式顯微鏡的使用，下列何者是不當的操作？", options: ["取用顯微鏡時要一手握住鏡臂，一手托住鏡座", "使用拭鏡紙擦拭鏡頭時，應朝同一方向擦拭", "轉換觀察倍率時，應轉動旋轉盤更換物鏡倍率", "為了看清楚物體，只需轉動粗調節輪就可以"], correct: 3 },
-  { id: "q18", n: 18, text: "有一具複式顯微鏡其目鏡有5X、10X、15X，物鏡有10X、20X、100X，此顯微鏡共有幾種放大倍率？", options: ["6", "7", "8", "9"], correct: 2 },
-  { id: "q19", n: 19, text: "使用複式顯微鏡觀察標本時，下列哪一項組合有因果關係？", options: ["縮小光圈──視野變小", "放大光圈──視野變小", "低倍鏡時──視野變大", "高倍鏡時──視野變大"], correct: 2 },
-  { id: "q20", n: 20, text: "右圖是解剖顯微鏡觀察已麻醉的蜜蜂之影像，小蓮該如何操作顯微鏡，才能讓蜜蜂在視野正中央？", options: ["更換倍率較高的鏡頭", "轉動調節輪", "將視野亮度調亮", "移動標本"], correct: 3 },
-];
 
 const LETTERS = ["A", "B", "C", "D"];
 const INTERVALS = [1, 2, 4, 7, 15, 30]; // 艾賓浩斯簡化複習間隔（天）
-const QUIZ_ID = "cell-microscope-quiz1";
-const QUIZ_TITLE = "第1回 第1、2單元｜細胞與顯微鏡";
 const attemptGuard = createAttemptGuard();
 
 const fmtDate = (d) =>
@@ -137,7 +114,7 @@ export default function App() {
         checked.studentCode,
         checked.studentName,
       );
-      const prepared = lifecycle.prepareAttempt(QUESTIONS);
+      const prepared = lifecycle.prepareAttempt(QUIZ_DEFINITION.questions);
       if (!prepared.ok) {
         setIdentityError(prepared.error);
         return;
@@ -160,8 +137,8 @@ export default function App() {
     }
   };
 
-  const selectOption = (qid, idx) => {
-    setAnswers((prev) => ({ ...prev, [qid]: idx }));
+  const selectOption = (qid, optionId) => {
+    setAnswers((prev) => ({ ...prev, [qid]: optionId }));
   };
 
   const goNext = () => {
@@ -272,7 +249,7 @@ export default function App() {
   const reviewList = Object.entries(progress)
     .filter(([, v]) => v.errorCount > 0)
     .map(([id, v]) => {
-      const q = QUESTIONS.find((qq) => qq.id === id);
+      const q = QUIZ_DEFINITION.questions.find((qq) => qq.id === id);
       return { id, text: q ? q.text : "", ...v, daysLeft: daysUntil(v.nextReview) };
     })
     .sort((a, b) => new Date(a.nextReview) - new Date(b.nextReview));
@@ -375,7 +352,7 @@ export default function App() {
               index={current}
               total={quizQuestions.length}
               selected={answers[quizQuestions[current].id]}
-              onSelect={(idx) => selectOption(quizQuestions[current].id, idx)}
+              onSelect={(optionId) => selectOption(quizQuestions[current].id, optionId)}
               onNext={goNext}
               onPrev={goPrev}
               finishing={finishing}
@@ -555,11 +532,11 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 
       <div className="space-y-2.5 mb-7">
         {question.options.map((opt, idx) => {
-          const isSelected = selected === idx;
+          const isSelected = selected === opt.id;
           return (
             <button
-              key={idx}
-              onClick={() => onSelect(idx)}
+              key={opt.id}
+              onClick={() => onSelect(opt.id)}
               className="w-full text-left flex items-start gap-3 px-4 py-3 rounded transition"
               style={{
                 background: isSelected ? "rgba(44,75,124,0.08)" : "white",

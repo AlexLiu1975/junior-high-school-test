@@ -10,15 +10,23 @@ const questions = [
     id: "q1",
     n: 1,
     text: "第一題",
-    options: ["甲", "乙", "丙", "丁"],
-    correct: 1,
+    options: [
+      { id: "q1-o1", text: "甲", correct: false },
+      { id: "q1-o2", text: "乙", correct: true },
+      { id: "q1-o3", text: "丙", correct: false },
+      { id: "q1-o4", text: "丁", correct: false },
+    ],
   },
   {
     id: "q2",
     n: 2,
     text: "第二題",
-    options: ["戊", "己", "庚", "辛"],
-    correct: 3,
+    options: [
+      { id: "q2-o1", text: "戊", correct: false },
+      { id: "q2-o2", text: "己", correct: false },
+      { id: "q2-o3", text: "庚", correct: false },
+      { id: "q2-o4", text: "辛", correct: true },
+    ],
   },
 ];
 
@@ -75,7 +83,7 @@ test("results map letters and text from the exact viewed attempt", () => {
   const lifecycle = createQuizAttemptLifecycle();
   startAttempt(lifecycle, alwaysZero);
 
-  assert.deepEqual(lifecycle.resultsFor({ q1: 0, q2: 0 }), {
+  assert.deepEqual(lifecycle.resultsFor({ q1: "q1-o2", q2: "q2-o2" }), {
     correctCount: 1,
     wrongIds: ["q2"],
     wrongAnswers: [
