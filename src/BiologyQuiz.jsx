@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   isAnswerCorrect,
 } from "./quizRandomization";
@@ -51,6 +51,33 @@ export default function BiologyQuiz({ progress, sync }) {
   if (attempt && attemptLifecycleRef.current.questionAt(0) === undefined) {
     attemptLifecycleRef.current.restoreAttempt(attempt.questions);
   }
+
+  useEffect(() => {
+    if (typeof sync.onRecoveredSubmission !== "function" || !attempt) return undefined;
+    return sync.onRecoveredSubmission(({ result, submission, refreshRequired }) => {
+      if (submission?.attemptId !== attempt.attemptId) return;
+      try {
+        const recovered = biologyQuizAdapter.restoreConfirmedSubmission({
+          currentAttempt: attempt,
+          submission,
+          result,
+        });
+        attemptLifecycleRef.current.restoreAttempt(recovered.attempt.questions);
+        setAttempt(recovered.attempt);
+        setReviewProgress(recovered.reviewProgress);
+        setConfirmedResult(recovered.result);
+        setSaveError(
+          refreshRequired
+            ? "完成紀錄已保存；請重新整理頁面後再開始新的測驗。"
+            : null,
+        );
+        setView("results");
+      } catch (error) {
+        console.error("Recovered biology submission could not be displayed", error);
+        setSaveError("完成紀錄已保存，但結果畫面無法還原；請重新整理頁面。");
+      }
+    });
+  }, [attempt, sync]);
 
   const saveAttempt = (nextAttempt, nextReviewProgress = reviewProgress) => {
     sync.queueSave(biologyQuizAdapter.serializeProgress({

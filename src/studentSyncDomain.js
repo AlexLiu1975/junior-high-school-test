@@ -186,6 +186,7 @@ export async function refreshProgressAfterSubmission({
   credentials,
   identity,
   quiz,
+  isCurrent = () => true,
 }) {
   const cloudProgress = await loadProgress({
     ...credentials,
@@ -200,6 +201,7 @@ export async function refreshProgressAfterSubmission({
   ) {
     throw new Error("invalid-submission-progress-refresh");
   }
+  if (!isCurrent()) throw new Error("student-session-changed");
   const refreshed = toLocalProgressSnapshot(cloudProgress, { pendingSync: false });
   client.replaceLocalProgress({
     studentId: identity.studentId,
@@ -522,12 +524,20 @@ export async function recoverStudentSyncOnline({
 }) {
   await client.flush();
   const pending = client.loadPendingAttempt(studentId, quizId);
+  let recoveredSubmission = null;
   if (pending && allowSubmitRetry) {
-    await client.retryPendingAttempt({
+    const result = await client.retryPendingAttempt({
       studentId,
       quizId,
       buildRequest: buildSubmissionRequest,
     });
+    recoveredSubmission = {
+      result,
+      submission: cloneSerializable(pending.submission),
+    };
   }
-  return client.getReadiness(studentId, quizId);
+  return {
+    ...client.getReadiness(studentId, quizId),
+    ...(recoveredSubmission ? { recoveredSubmission } : {}),
+  };
 }

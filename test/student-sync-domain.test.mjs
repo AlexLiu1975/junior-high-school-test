@@ -725,14 +725,89 @@ test("online recovery never reports synced while an attempt is still pending", a
   }), { status: "pending-attempt" });
   assert.equal(submitCalls, 1);
 
-  assert.deepEqual(await recoverStudentSyncOnline({
+  const recovered = await recoverStudentSyncOnline({
     client,
     studentId: "student-1",
     quizId: "biology-cell-microscope-1",
     allowSubmitRetry: true,
     buildSubmissionRequest: (submission) => submission,
-  }), { status: "synced" });
+  });
+  assert.deepEqual(recovered, {
+    status: "synced",
+    recoveredSubmission: {
+      result: { attemptId: "run-1" },
+      submission: { attemptId: "run-1" },
+    },
+  });
   assert.equal(submitCalls, 2);
+  client.dispose();
+});
+
+test("online recovery exposes the confirmed submission for refresh and renderer delivery", async () => {
+  const storage = createMemoryStorage();
+  let submitCalls = 0;
+  const delivered = [];
+  const client = createStudentSyncClient({
+    storage,
+    callSave: async () => ({}),
+    callSubmit: async () => {
+      submitCalls += 1;
+      if (submitCalls === 1) throw new Error("offline");
+      return { attemptId: "run-recovered", resultType: "score", score: 90 };
+    },
+  });
+  client.replaceLocalProgress({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    progress: { revision: 7, quizVersion: 1, kind: "multiple-choice", activeAttempt: { attemptId: "run-recovered" }, reviewProgress: {} },
+  });
+  const pendingSubmission = {
+    attemptId: "run-recovered",
+    answers: { q1: "q1-o1" },
+    reviewProgress: { q1: { errorCount: 1 } },
+  };
+  await assert.rejects(client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: pendingSubmission,
+    request: pendingSubmission,
+  }), /offline/);
+
+  const recovery = await recoverStudentSyncOnline({
+    client,
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    allowSubmitRetry: true,
+    buildSubmissionRequest: (submission) => submission,
+  });
+  const outcome = await submitWithProgressRefresh({
+    submit: async () => recovery.recoveredSubmission.result,
+    refresh: () => refreshProgressAfterSubmission({
+      loadProgress: async () => ({
+        studentId: "student-1",
+        quizId: "biology-cell-microscope-1",
+        quizVersion: 1,
+        kind: "multiple-choice",
+        revision: 8,
+        activeAttempt: null,
+        reviewProgress: pendingSubmission.reviewProgress,
+      }),
+      client,
+      credentials: { studentCode: "20260808-001", studentName: "學生一" },
+      identity: { studentId: "student-1" },
+      quiz: { id: "biology-cell-microscope-1", version: 1, kind: "multiple-choice" },
+    }),
+  });
+  delivered.push({ ...recovery.recoveredSubmission, refreshError: outcome.refreshError });
+
+  assert.equal(submitCalls, 2);
+  assert.deepEqual(delivered, [{
+    result: { attemptId: "run-recovered", resultType: "score", score: 90 },
+    submission: pendingSubmission,
+    refreshError: null,
+  }]);
+  assert.equal(client.load("student-1", "biology-cell-microscope-1").revision, 8);
+  assert.equal(client.load("student-1", "biology-cell-microscope-1").activeAttempt, null);
   client.dispose();
 });
 
@@ -885,6 +960,38 @@ test("submission refresh makes the first retry save use the latest server revisi
   await client.flush();
 
   assert.equal(saveRequests[0].baseRevision, 5);
+  client.dispose();
+});
+
+test("post-submit refresh cannot write into a replaced student session", async () => {
+  const client = createStudentSyncClient({
+    storage: createMemoryStorage(),
+    callSave: async () => ({}),
+    callSubmit: async () => ({}),
+  });
+  client.replaceLocalProgress({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    progress: { revision: 4, quizVersion: 1, kind: "multiple-choice", activeAttempt: {}, reviewProgress: {} },
+  });
+
+  await assert.rejects(refreshProgressAfterSubmission({
+    loadProgress: async () => ({
+      studentId: "student-1",
+      quizId: "biology-cell-microscope-1",
+      quizVersion: 1,
+      kind: "multiple-choice",
+      revision: 5,
+      activeAttempt: null,
+      reviewProgress: {},
+    }),
+    client,
+    credentials: { studentCode: "20260808-001", studentName: "學生一" },
+    identity: { studentId: "student-1" },
+    quiz: { id: "biology-cell-microscope-1", version: 1, kind: "multiple-choice" },
+    isCurrent: () => false,
+  }), /student-session-changed/);
+  assert.equal(client.load("student-1", "biology-cell-microscope-1").revision, 4);
   client.dispose();
 });
 

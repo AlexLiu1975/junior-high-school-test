@@ -116,6 +116,32 @@ test("biology uses only the server-confirmed score result", () => {
   );
 });
 
+test("biology converts an online-recovered submission into the confirmed result state", () => {
+  const currentAttempt = biologyQuizAdapter.restoreAttempt(savedAttempt);
+  const recovered = biologyQuizAdapter.restoreConfirmedSubmission({
+    currentAttempt,
+    submission: {
+      ...biologyQuizAdapter.buildSubmission({ ...currentAttempt, reviewProgress: {} }),
+      answers: { ...currentAttempt.answers, q20: "q20-o1" },
+      reviewProgress: {
+        q20: {
+          errorCount: 2,
+          stage: 0,
+          lastResult: "wrong",
+          lastAttempt: "2026/08/08",
+          nextReview: "2026/08/09",
+        },
+      },
+    },
+    result: { resultType: "score", score: 80, correctCount: 16, wrongCount: 4 },
+  });
+
+  assert.equal(recovered.attempt.answers.q20, "q20-o1");
+  assert.equal(recovered.attempt.currentQuestionIndex, savedAttempt.currentQuestionIndex);
+  assert.equal(recovered.reviewProgress.q20.errorCount, 2);
+  assert.deepEqual(recovered.result, { score: 80, correctCount: 16, wrongCount: 4 });
+});
+
 test("biology creates a new attempt with stable serializable orders", () => {
   const first = biologyQuizAdapter.createAttempt({ random: () => 0, attemptId: "attempt-a" });
   const second = biologyQuizAdapter.createAttempt({ random: () => 0.999999, attemptId: "attempt-b" });

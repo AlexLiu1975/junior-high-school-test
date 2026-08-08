@@ -34,13 +34,16 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const rendererRef = useRef(null);
   const sessionRef = useRef(null);
   const refreshRequiredRef = useRef(false);
+  const recoveredSubmissionHandlerRef = useRef(null);
 
   const applySyncReadiness = useCallback((identity) => {
     const client = clientRef.current;
     if (!client || !identity) return null;
     const readiness = client.getReadiness(identity.studentId, quiz.id);
     if (!mountedRef.current) return readiness;
-    if (readiness.status === "synced") {
+    if (refreshRequiredRef.current) {
+      setStatus("refresh-required");
+    } else if (readiness.status === "synced") {
       setStatus("synced");
     } else if (readiness.status === "pending-attempt") {
       setStatus("submit-failed");
@@ -50,11 +53,52 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
     return readiness;
   }, [quiz.id]);
 
+  const isCurrentSession = useCallback((currentSession, client) => (
+    mountedRef.current
+      && clientRef.current === client
+      && sessionRef.current === currentSession
+      && currentSession?.identity?.studentId === sessionRef.current?.identity?.studentId
+  ), []);
+
+  const refreshConfirmedSubmission = useCallback(async ({
+    result,
+    currentSession,
+    client,
+    credentials,
+  }) => {
+    const outcome = await submitWithProgressRefresh({
+      submit: async () => result,
+      refresh: () => refreshProgressAfterSubmission({
+        loadProgress: loadStudentProgress,
+        client,
+        credentials,
+        identity: currentSession.identity,
+        quiz,
+        isCurrent: () => isCurrentSession(currentSession, client),
+      }),
+    });
+    if (!isCurrentSession(currentSession, client)) {
+      return { delivered: false, refreshError: outcome.refreshError };
+    }
+    if (outcome.refreshError) {
+      refreshRequiredRef.current = true;
+      setStatus("refresh-required");
+      return { delivered: true, refreshError: outcome.refreshError };
+    }
+    refreshRequiredRef.current = false;
+    const nextSession = { ...currentSession, progress: outcome.refreshedProgress };
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+    applySyncReadiness(currentSession.identity);
+    return { delivered: true, refreshError: null };
+  }, [applySyncReadiness, isCurrentSession, quiz]);
+
   useEffect(() => {
     mountedRef.current = true;
     const retryWhenOnline = () => {
       const currentSession = sessionRef.current;
       const client = clientRef.current;
+      const credentials = credentialsRef.current;
       if (!client || !currentSession) return;
       void recoverStudentSyncOnline({
         client,
@@ -68,11 +112,34 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
           quiz,
         }),
       })
-        .then(() => {
-          applySyncReadiness(currentSession.identity);
+        .then(async (recovery) => {
+          if (recovery.recoveredSubmission) {
+            const completion = await refreshConfirmedSubmission({
+              result: recovery.recoveredSubmission.result,
+              currentSession,
+              client,
+              credentials,
+            });
+            if (completion.delivered) {
+              recoveredSubmissionHandlerRef.current?.({
+                ...recovery.recoveredSubmission,
+                refreshRequired: completion.refreshError !== null,
+              });
+            }
+            return;
+          }
+          if (isCurrentSession(currentSession, client)) {
+            applySyncReadiness(currentSession.identity);
+          }
         })
         .catch((error) => {
-          if (mountedRef.current) setStatus(classifyStudentSyncError(error));
+          if (mountedRef.current) {
+            setStatus(
+              refreshRequiredRef.current
+                ? "refresh-required"
+                : classifyStudentSyncError(error),
+            );
+          }
         });
     };
     window.addEventListener("online", retryWhenOnline);
@@ -81,7 +148,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       window.removeEventListener("online", retryWhenOnline);
       clientRef.current?.dispose();
     };
-  }, [applySyncReadiness, quiz]);
+  }, [applySyncReadiness, isCurrentSession, quiz, refreshConfirmedSubmission]);
 
   function requestForProgress(progress) {
     return buildTrustedProgressRequest({
@@ -288,43 +355,34 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         },
         async submit(submission) {
           setStatus("submitting");
+          const currentSession = session;
+          const client = clientRef.current;
+          const credentials = credentialsRef.current;
           const request = buildTrustedSubmissionRequest({
             submission,
-            credentials: credentialsRef.current,
-            identity: session.identity,
+            credentials,
+            identity: currentSession.identity,
             quiz,
           });
           try {
-            const outcome = await submitWithProgressRefresh({
-              submit: () => clientRef.current.submit({
-                studentId: session.identity.studentId,
-                quizId: quiz.id,
-                submission: request,
-                request,
-              }),
-              refresh: () => refreshProgressAfterSubmission({
-                loadProgress: loadStudentProgress,
-                client: clientRef.current,
-                credentials: credentialsRef.current,
-                identity: session.identity,
-                quiz,
-              }),
+            const result = await client.submit({
+              studentId: currentSession.identity.studentId,
+              quizId: quiz.id,
+              submission: request,
+              request,
             });
-            if (outcome.refreshError) {
-              refreshRequiredRef.current = true;
-              if (mountedRef.current) setStatus("refresh-required");
-              return outcome.result;
+            const completion = await refreshConfirmedSubmission({
+              result,
+              currentSession,
+              client,
+              credentials,
+            });
+            if (!completion.delivered) {
+              throw new Error("student-session-changed");
             }
-            refreshRequiredRef.current = false;
-            if (mountedRef.current) {
-              const nextSession = { ...session, progress: outcome.refreshedProgress };
-              sessionRef.current = nextSession;
-              setSession(nextSession);
-            }
-            applySyncReadiness(session.identity);
-            return outcome.result;
+            return result;
           } catch (error) {
-            if (mountedRef.current) {
+            if (isCurrentSession(currentSession, client)) {
               const errorState = classifyStudentSyncError(error);
               setStatus(errorState === "unknown" ? "submit-failed" : errorState);
             }
@@ -333,6 +391,14 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         },
         loadPendingAttempt() {
           return clientRef.current.loadPendingAttempt(session.identity.studentId, quiz.id);
+        },
+        onRecoveredSubmission(handler) {
+          recoveredSubmissionHandlerRef.current = handler;
+          return () => {
+            if (recoveredSubmissionHandlerRef.current === handler) {
+              recoveredSubmissionHandlerRef.current = null;
+            }
+          };
         },
       }
     : null;

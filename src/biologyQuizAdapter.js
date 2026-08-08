@@ -128,6 +128,22 @@ export const biologyQuizAdapter = Object.freeze({
     };
   },
 
+  restoreConfirmedSubmission({ currentAttempt, submission, result }) {
+    if (submission?.attemptId !== currentAttempt?.attemptId) invalidAttempt();
+    const attempt = biologyQuizAdapter.restoreAttempt({
+      attemptId: submission.attemptId,
+      questionOrder: submission.questionOrder,
+      optionOrder: submission.optionOrder,
+      answers: submission.answers,
+      currentQuestionIndex: currentAttempt.currentQuestionIndex,
+    });
+    return {
+      attempt,
+      reviewProgress: structuredClone(submission.reviewProgress ?? {}),
+      result: biologyQuizAdapter.renderResult(result),
+    };
+  },
+
   renderResult(result) {
     if (
       result?.resultType !== "score"
