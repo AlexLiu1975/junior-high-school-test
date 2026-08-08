@@ -224,6 +224,24 @@ export async function submitWithProgressRefresh({ submit, refresh }) {
   }
 }
 
+export function matchesStudentSessionScope({
+  mounted,
+  currentClient,
+  client,
+  activeToken,
+  token,
+  currentSession,
+  studentId,
+  quizId,
+}) {
+  return mounted === true
+    && currentClient === client
+    && activeToken === token
+    && currentSession?.token === token
+    && currentSession?.identity?.studentId === studentId
+    && currentSession?.quizId === quizId;
+}
+
 export function createStudentSyncClient({
   storage,
   callSave,

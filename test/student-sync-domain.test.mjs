@@ -14,6 +14,7 @@ import {
   resolveProgressConflict,
   toLocalProgressSnapshot,
   submitWithProgressRefresh,
+  matchesStudentSessionScope,
 } from "../src/studentSyncDomain.js";
 
 function createMemoryStorage() {
@@ -992,6 +993,103 @@ test("post-submit refresh cannot write into a replaced student session", async (
     isCurrent: () => false,
   }), /student-session-changed/);
   assert.equal(client.load("student-1", "biology-cell-microscope-1").revision, 4);
+  client.dispose();
+});
+
+test("stable session token survives progress state replacement but rejects real scope changes", () => {
+  const client = {};
+  const token = 17;
+  const captured = {
+    client,
+    token,
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+  };
+  const progressUpdatedSession = {
+    token,
+    identity: { studentId: "student-1" },
+    quizId: "biology-cell-microscope-1",
+    progress: { revision: 8 },
+  };
+
+  assert.equal(matchesStudentSessionScope({
+    mounted: true,
+    currentClient: client,
+    activeToken: token,
+    currentSession: progressUpdatedSession,
+    ...captured,
+  }), true);
+  for (const changed of [
+    { currentClient: {} },
+    { activeToken: token + 1 },
+    { currentSession: { ...progressUpdatedSession, token: token + 1 } },
+    { currentSession: { ...progressUpdatedSession, identity: { studentId: "student-2" } } },
+    { currentSession: { ...progressUpdatedSession, quizId: "english-review-2" } },
+    { mounted: false },
+  ]) {
+    assert.equal(matchesStudentSessionScope({
+      mounted: true,
+      currentClient: client,
+      activeToken: token,
+      currentSession: progressUpdatedSession,
+      ...captured,
+      ...changed,
+    }), false);
+  }
+});
+
+test("final snapshot session update still permits direct submit progress refresh", async () => {
+  const client = createStudentSyncClient({
+    storage: createMemoryStorage(),
+    callSave: async () => ({}),
+    callSubmit: async () => ({}),
+  });
+  const token = 23;
+  const capturedSession = {
+    token,
+    identity: { studentId: "student-1" },
+    quizId: "biology-cell-microscope-1",
+    progress: { revision: 7 },
+  };
+  const currentSession = {
+    ...capturedSession,
+    progress: { revision: 7, activeAttempt: { attemptId: "final-snapshot" } },
+  };
+  client.replaceLocalProgress({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    progress: { revision: 7, quizVersion: 1, kind: "multiple-choice", activeAttempt: currentSession.progress.activeAttempt, reviewProgress: {} },
+  });
+  const isCurrent = () => matchesStudentSessionScope({
+    mounted: true,
+    currentClient: client,
+    client,
+    activeToken: token,
+    token: capturedSession.token,
+    currentSession,
+    studentId: capturedSession.identity.studentId,
+    quizId: capturedSession.quizId,
+  });
+
+  const refreshed = await refreshProgressAfterSubmission({
+    loadProgress: async () => ({
+      studentId: "student-1",
+      quizId: "biology-cell-microscope-1",
+      quizVersion: 1,
+      kind: "multiple-choice",
+      revision: 8,
+      activeAttempt: null,
+      reviewProgress: {},
+    }),
+    client,
+    credentials: { studentCode: "20260808-001", studentName: "學生一" },
+    identity: capturedSession.identity,
+    quiz: { id: capturedSession.quizId, version: 1, kind: "multiple-choice" },
+    isCurrent,
+  });
+
+  assert.equal(refreshed.revision, 8);
+  assert.equal(client.load("student-1", capturedSession.quizId).activeAttempt, null);
   client.dispose();
 });
 

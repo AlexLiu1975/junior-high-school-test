@@ -18,6 +18,7 @@ import {
   resolveProgressConflict,
   toLocalProgressSnapshot,
   submitWithProgressRefresh,
+  matchesStudentSessionScope,
 } from "./studentSyncDomain.js";
 import SyncStatus from "./SyncStatus.jsx";
 
@@ -35,6 +36,8 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const sessionRef = useRef(null);
   const refreshRequiredRef = useRef(false);
   const recoveredSubmissionHandlerRef = useRef(null);
+  const sessionTokenCounterRef = useRef(0);
+  const activeSessionTokenRef = useRef(null);
 
   const applySyncReadiness = useCallback((identity) => {
     const client = clientRef.current;
@@ -53,11 +56,17 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
     return readiness;
   }, [quiz.id]);
 
-  const isCurrentSession = useCallback((currentSession, client) => (
-    mountedRef.current
-      && clientRef.current === client
-      && sessionRef.current === currentSession
-      && currentSession?.identity?.studentId === sessionRef.current?.identity?.studentId
+  const isCurrentSession = useCallback(({ client, token, studentId, quizId }) => (
+    matchesStudentSessionScope({
+      mounted: mountedRef.current,
+      currentClient: clientRef.current,
+      client,
+      activeToken: activeSessionTokenRef.current,
+      token,
+      currentSession: sessionRef.current,
+      studentId,
+      quizId,
+    })
   ), []);
 
   const refreshConfirmedSubmission = useCallback(async ({
@@ -66,6 +75,12 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
     client,
     credentials,
   }) => {
+    const scope = {
+      client,
+      token: currentSession.token,
+      studentId: currentSession.identity.studentId,
+      quizId: currentSession.quizId,
+    };
     const outcome = await submitWithProgressRefresh({
       submit: async () => result,
       refresh: () => refreshProgressAfterSubmission({
@@ -74,10 +89,10 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         credentials,
         identity: currentSession.identity,
         quiz,
-        isCurrent: () => isCurrentSession(currentSession, client),
+        isCurrent: () => isCurrentSession(scope),
       }),
     });
-    if (!isCurrentSession(currentSession, client)) {
+    if (!isCurrentSession(scope)) {
       return { delivered: false, refreshError: outcome.refreshError };
     }
     if (outcome.refreshError) {
@@ -86,7 +101,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       return { delivered: true, refreshError: outcome.refreshError };
     }
     refreshRequiredRef.current = false;
-    const nextSession = { ...currentSession, progress: outcome.refreshedProgress };
+    const nextSession = { ...sessionRef.current, progress: outcome.refreshedProgress };
     sessionRef.current = nextSession;
     setSession(nextSession);
     applySyncReadiness(currentSession.identity);
@@ -107,7 +122,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         allowSubmitRetry: rendererRef.current !== null,
         buildSubmissionRequest: (submission) => buildTrustedSubmissionRequest({
           submission,
-          credentials: credentialsRef.current,
+          credentials,
           identity: currentSession.identity,
           quiz,
         }),
@@ -128,12 +143,22 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
             }
             return;
           }
-          if (isCurrentSession(currentSession, client)) {
+          if (isCurrentSession({
+            client,
+            token: currentSession.token,
+            studentId: currentSession.identity.studentId,
+            quizId: currentSession.quizId,
+          })) {
             applySyncReadiness(currentSession.identity);
           }
         })
         .catch((error) => {
-          if (mountedRef.current) {
+          if (isCurrentSession({
+            client,
+            token: currentSession.token,
+            studentId: currentSession.identity.studentId,
+            quizId: currentSession.quizId,
+          })) {
             setStatus(
               refreshRequiredRef.current
                 ? "refresh-required"
@@ -145,6 +170,9 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
     window.addEventListener("online", retryWhenOnline);
     return () => {
       mountedRef.current = false;
+      activeSessionTokenRef.current = null;
+      sessionTokenCounterRef.current += 1;
+      sessionRef.current = null;
       window.removeEventListener("online", retryWhenOnline);
       clientRef.current?.dispose();
     };
@@ -168,7 +196,12 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       });
     }
     setConflict(null);
-    const nextSession = { identity, progress };
+    const nextSession = {
+      identity,
+      progress,
+      token: activeSessionTokenRef.current,
+      quizId: quiz.id,
+    };
     sessionRef.current = nextSession;
     setSession(nextSession);
     if (!moduleLoader) {
@@ -229,6 +262,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       credentialsRef.current = credentials;
       const identity = { studentId: cloudProgress.studentId };
       clientRef.current?.dispose();
+      activeSessionTokenRef.current = ++sessionTokenCounterRef.current;
       clientRef.current = createStudentSyncClient({
         storage: window.localStorage,
         callSave: saveStudentProgress,
@@ -382,7 +416,12 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
             }
             return result;
           } catch (error) {
-            if (isCurrentSession(currentSession, client)) {
+            if (isCurrentSession({
+              client,
+              token: currentSession.token,
+              studentId: currentSession.identity.studentId,
+              quizId: currentSession.quizId,
+            })) {
               const errorState = classifyStudentSyncError(error);
               setStatus(errorState === "unknown" ? "submit-failed" : errorState);
             }
