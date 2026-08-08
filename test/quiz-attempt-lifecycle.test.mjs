@@ -79,6 +79,22 @@ test("a retry creates a fresh prepared quiz", () => {
   );
 });
 
+test("a restored prepared quiz keeps its saved navigation order", () => {
+  const lifecycle = createQuizAttemptLifecycle();
+  const prepared = startAttempt(lifecycle, alwaysZero);
+  const restored = prepared.map((question) => ({
+    ...question,
+    options: [...question.options].reverse(),
+  }));
+
+  assert.deepEqual(lifecycle.restoreAttempt(restored), restored);
+  assert.equal(lifecycle.questionAt(0).id, restored[0].id);
+  assert.deepEqual(
+    lifecycle.questionAt(0).options.map(({ id }) => id),
+    restored[0].options.map(({ id }) => id),
+  );
+});
+
 test("results map letters and text from the exact viewed attempt", () => {
   const lifecycle = createQuizAttemptLifecycle();
   startAttempt(lifecycle, alwaysZero);

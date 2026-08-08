@@ -180,6 +180,35 @@ export function buildTrustedProgressRequest({ progress, credentials, quiz }) {
   };
 }
 
+export async function refreshProgressAfterSubmission({
+  loadProgress,
+  client,
+  credentials,
+  identity,
+  quiz,
+}) {
+  const cloudProgress = await loadProgress({
+    ...credentials,
+    quizId: quiz.id,
+    quizVersion: quiz.version,
+  });
+  if (
+    cloudProgress?.studentId !== identity.studentId
+    || cloudProgress.quizId !== quiz.id
+    || cloudProgress.quizVersion !== quiz.version
+    || cloudProgress.kind !== quiz.kind
+  ) {
+    throw new Error("invalid-submission-progress-refresh");
+  }
+  const refreshed = toLocalProgressSnapshot(cloudProgress, { pendingSync: false });
+  client.replaceLocalProgress({
+    studentId: identity.studentId,
+    quizId: quiz.id,
+    progress: refreshed,
+  });
+  return refreshed;
+}
+
 export function createStudentSyncClient({
   storage,
   callSave,

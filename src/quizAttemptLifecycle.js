@@ -38,6 +38,14 @@ export function createQuizAttemptLifecycle() {
       }
     },
 
+    restoreAttempt(savedQuestions) {
+      if (!Array.isArray(savedQuestions) || savedQuestions.length === 0) {
+        throw new Error("invalid-restored-questions");
+      }
+      questions = savedQuestions;
+      return questions;
+    },
+
     move(current, offset) {
       if (questions.length === 0) return 0;
       return Math.max(0, Math.min(current + offset, questions.length - 1));

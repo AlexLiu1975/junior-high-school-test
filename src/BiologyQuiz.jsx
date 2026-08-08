@@ -1,32 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  ensureSignedIn,
-  loadProgress,
-  saveProgress,
-  saveQuizAttempt,
-  validateStudentEntry,
-} from "./firebase";
-import {
-  buildAttemptRecord,
-  createAttemptGuard,
-  validateStudentIdentity,
-} from "./quizDomain";
+import React, { useState, useRef } from "react";
 import {
   isAnswerCorrect,
-  scoreQuiz,
 } from "./quizRandomization";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
 import {
   QUIZ_DEFINITION,
-  QUIZ_ID,
-  QUIZ_TITLE,
 } from "../functions/shared/biologyDefinition.js";
-import HomeLink from "./HomeLink.jsx";
+import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
 
 const LETTERS = ["A", "B", "C", "D"];
 const INTERVALS = [1, 2, 4, 7, 15, 30]; // 艾賓浩斯簡化複習間隔（天）
-const attemptGuard = createAttemptGuard();
-
 const fmtDate = (d) =>
   `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 
@@ -44,136 +27,98 @@ const daysUntil = (dateStr) => {
   return Math.round((target - now) / 86400000);
 };
 
-export default function App() {
-  const [view, setView] = useState("intro"); // intro | quiz | results
-  const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [quizQuestions, setQuizQuestions] = useState([]);
-  const [progress, setProgress] = useState({});
-  const [uid, setUid] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [lastScore, setLastScore] = useState(null);
-  const [studentCode, setStudentCode] = useState("");
-  const [studentName, setStudentName] = useState("");
-  const [verifiedIdentity, setVerifiedIdentity] = useState(null);
-  const [identityError, setIdentityError] = useState(null);
-  const [starting, setStarting] = useState(false);
+function initialBiologyState(progress) {
+  if (!progress?.activeAttempt) return null;
+  return {
+    ...biologyQuizAdapter.restoreAttempt(progress.activeAttempt),
+    reviewProgress: structuredClone(progress.reviewProgress ?? {}),
+  };
+}
+
+export default function BiologyQuiz({ progress, sync }) {
+  const restoredRef = useRef(initialBiologyState(progress));
+  const [view, setView] = useState(restoredRef.current ? "quiz" : "intro");
+  const [attempt, setAttempt] = useState(restoredRef.current);
+  const [reviewProgress, setReviewProgress] = useState(
+    () => structuredClone(progress?.reviewProgress ?? {}),
+  );
   const [clearing, setClearing] = useState(false);
-  const [runId, setRunId] = useState(null);
   const [finishing, setFinishing] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [confirmedResult, setConfirmedResult] = useState(null);
   const attemptLifecycleRef = useRef(createQuizAttemptLifecycle());
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const id = await ensureSignedIn();
-        setUid(id);
-        const data = await loadProgress(id, QUIZ_ID);
-        setProgress(data || {});
-      } catch (e) {
-        console.error("Firebase load failed", e);
-        setLoadError("雲端進度同步尚未完成設定；目前仍可正常作答，但重新整理後不會保留進度。");
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, []);
+  if (attempt && attemptLifecycleRef.current.questionAt(0) === undefined) {
+    attemptLifecycleRef.current.restoreAttempt(attempt.questions);
+  }
 
-  const persist = useCallback(
-    async (next) => {
-      if (!uid) return;
-      setSaving(true);
-      try {
-        await saveProgress(uid, QUIZ_ID, next);
-      } catch (e) {
-        console.error("Firebase save failed", e);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [uid]
-  );
+  const saveAttempt = (nextAttempt, nextReviewProgress = reviewProgress) => {
+    sync.queueSave(biologyQuizAdapter.serializeProgress({
+      ...nextAttempt,
+      reviewProgress: nextReviewProgress,
+    }));
+  };
 
-  const startQuiz = async () => {
+  const startQuiz = () => {
     const lifecycle = attemptLifecycleRef.current;
     if (!lifecycle.claimStart()) return;
-
-    setStarting(true);
     try {
-      const checked = validateStudentIdentity({ studentName, studentCode });
-      if (!checked.valid) {
-        setIdentityError(checked.error);
-        return;
-      }
-
-      setIdentityError(null);
-      const identity = await validateStudentEntry(
-        checked.studentCode,
-        checked.studentName,
-      );
-      const prepared = lifecycle.prepareAttempt(QUIZ_DEFINITION.questions);
-      if (!prepared.ok) {
-        setIdentityError(prepared.error);
-        return;
-      }
-      setVerifiedIdentity(identity);
-      setStudentCode(checked.studentCode);
-      setStudentName(checked.studentName);
-      setRunId(crypto.randomUUID());
+      const nextAttempt = biologyQuizAdapter.createAttempt();
+      lifecycle.restoreAttempt(nextAttempt.questions);
       setSaveError(null);
-      setAnswers({});
-      setCurrent(0);
-      setQuizQuestions(prepared.questions);
+      setConfirmedResult(null);
+      setAttempt(nextAttempt);
       setFinishing(false);
       setView("quiz");
-    } catch {
-      setIdentityError("找不到相符的學生資料。");
+      saveAttempt(nextAttempt);
     } finally {
-      setStarting(false);
       lifecycle.releaseStart();
     }
   };
 
   const selectOption = (qid, optionId) => {
-    setAnswers((prev) => ({ ...prev, [qid]: optionId }));
+    const nextAttempt = { ...attempt, answers: { ...attempt.answers, [qid]: optionId } };
+    setAttempt(nextAttempt);
+    saveAttempt(nextAttempt);
   };
 
   const goNext = () => {
-    const next = attemptLifecycleRef.current.move(current, 1);
-    if (next !== current) {
-      setCurrent(next);
+    const next = attemptLifecycleRef.current.move(attempt.currentQuestionIndex, 1);
+    if (next !== attempt.currentQuestionIndex) {
+      const nextAttempt = { ...attempt, currentQuestionIndex: next };
+      setAttempt(nextAttempt);
+      saveAttempt(nextAttempt);
     } else {
       void finishQuiz();
     }
   };
 
   const goPrev = () => {
-    setCurrent(attemptLifecycleRef.current.move(current, -1));
+    const nextAttempt = {
+      ...attempt,
+      currentQuestionIndex: attemptLifecycleRef.current.move(attempt.currentQuestionIndex, -1),
+    };
+    setAttempt(nextAttempt);
+    saveAttempt(nextAttempt);
   };
 
   const finishQuiz = async () => {
-    if (!verifiedIdentity || !uid || !runId) return;
-
     const lifecycle = attemptLifecycleRef.current;
     if (!lifecycle.claimFinish()) return;
 
     setFinishing(true);
     try {
-      const { correctCount } = scoreQuiz(quizQuestions, answers);
       setSaveError(null);
       const today = new Date();
-      const next = { ...progress };
+      const nextReviewProgress = { ...reviewProgress };
 
-      quizQuestions.forEach((q) => {
-        const wasCorrect = isAnswerCorrect(q, answers[q.id]);
+      attempt.questions.forEach((q) => {
+        const wasCorrect = isAnswerCorrect(q, attempt.answers[q.id]);
 
-        const prevEntry = next[q.id] || { errorCount: 0, stage: -1 };
+        const prevEntry = nextReviewProgress[q.id] || { errorCount: 0, stage: -1 };
         if (wasCorrect) {
           const stage = Math.min(prevEntry.stage + 1, INTERVALS.length - 1);
-          next[q.id] = {
+          nextReviewProgress[q.id] = {
             errorCount: prevEntry.errorCount,
             stage,
             lastResult: "correct",
@@ -181,7 +126,7 @@ export default function App() {
             nextReview: fmtDate(addDays(today, INTERVALS[stage])),
           };
         } else {
-          next[q.id] = {
+          nextReviewProgress[q.id] = {
             errorCount: prevEntry.errorCount + 1,
             stage: 0,
             lastResult: "wrong",
@@ -191,30 +136,18 @@ export default function App() {
         }
       });
 
-      setProgress(next);
-      setLastScore(correctCount);
+      const submissionState = { ...attempt, reviewProgress: nextReviewProgress };
+      saveAttempt(attempt, nextReviewProgress);
+      await sync.flush();
+      const result = biologyQuizAdapter.renderResult(
+        await sync.submit(biologyQuizAdapter.buildSubmission(submissionState)),
+      );
+      setReviewProgress(nextReviewProgress);
+      setConfirmedResult(result);
       setView("results");
-
-      const writes = [persist(next)];
-      if (attemptGuard.claim(runId)) {
-        writes.push(
-          saveQuizAttempt(
-            buildAttemptRecord({
-              identity: verifiedIdentity,
-              uid,
-              quizId: QUIZ_ID,
-              quizTitle: QUIZ_TITLE,
-              correctCount,
-              totalQuestions: quizQuestions.length,
-            }),
-          ),
-        );
-      }
-
-      const results = await Promise.allSettled(writes);
-      if (results.some((result) => result.status === "rejected")) {
-        setSaveError("部分作答紀錄未能儲存，請檢查網路後重新整理。");
-      }
+    } catch (error) {
+      console.error("Biology submission failed", error);
+      setSaveError("作答紀錄尚未送出，資料已保留；請檢查網路後重試。");
     } finally {
       lifecycle.releaseFinish();
       setFinishing(false);
@@ -226,15 +159,16 @@ export default function App() {
     if (!lifecycle.claimClear()) return;
 
     setClearing(true);
-    setView("intro");
-    setProgress({});
-    setAnswers({});
-    setQuizQuestions([]);
-    setLastScore(null);
-    setRunId(null);
     setSaveError(null);
     try {
-      await persist({});
+      sync.queueSave({ activeAttempt: null, reviewProgress });
+      await sync.flush();
+      setAttempt(null);
+      setConfirmedResult(null);
+      setView("intro");
+    } catch (error) {
+      console.error("Biology reset failed", error);
+      setSaveError("清除進度尚未同步，請檢查網路後重試。");
     } finally {
       lifecycle.releaseClear();
       setClearing(false);
@@ -242,11 +176,11 @@ export default function App() {
   };
 
   const attemptResults =
-    quizQuestions.length > 0
-      ? attemptLifecycleRef.current.resultsFor(answers)
+    attempt?.questions.length > 0
+      ? attemptLifecycleRef.current.resultsFor(attempt.answers)
       : { correctCount: 0, wrongIds: [], wrongAnswers: [] };
 
-  const reviewList = Object.entries(progress)
+  const reviewList = Object.entries(reviewProgress)
     .filter(([, v]) => v.errorCount > 0)
     .map(([id, v]) => {
       const q = QUIZ_DEFINITION.questions.find((qq) => qq.id === id);
@@ -265,21 +199,6 @@ export default function App() {
   const PAPER_LINE = "#DCD4BC";
   const INKDARK = "#241F1B";
 
-  if (!loaded) {
-    return (
-      <div style={{ ...fontStyle, background: "#1F2E23" }} className="min-h-screen w-full px-4 py-8">
-        <div className="mx-auto max-w-2xl">
-          <HomeLink className="mb-5" variant="quiz" />
-          <div className="flex min-h-[calc(100vh-7rem)] items-center justify-center">
-            <p style={{ color: PAPER }} className="text-sm tracking-wide">
-              載入中…
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={{ ...fontStyle, background: "#1F2E23" }} className="min-h-screen w-full py-8 px-4">
       <style>{`
@@ -296,7 +215,6 @@ export default function App() {
       `}</style>
 
       <div className="max-w-2xl mx-auto">
-        <HomeLink className="mb-5" variant="quiz" />
         <div className="rounded-t-md px-5 py-3 flex items-center justify-between" style={{ background: "#33261C" }}>
           <div>
             <p style={{ ...monoStyle, color: "#C9BFA8" }} className="text-[10px] tracking-[0.2em] uppercase">
@@ -308,17 +226,12 @@ export default function App() {
           </div>
           <div className="rounded-full flex items-center justify-center w-12 h-12 shrink-0" style={{ border: `2px solid ${GREEN}`, color: PAPER }}>
             <span style={{ ...serifStyle }} className="text-xs font-bold">
-              {view === "results" ? `${lastScore * 5}` : "20題"}
+              {view === "results" ? `${Math.round(confirmedResult.score)}` : "20題"}
             </span>
           </div>
         </div>
 
         <div className="paper-lines rounded-b-md px-5 sm:px-7 py-6" style={{ background: PAPER }}>
-          {loadError && (
-            <div className="mb-5 rounded px-4 py-3 text-sm" style={{ background: "rgba(178,58,46,0.08)", border: "1px solid #E3B0A8", color: RED }}>
-              {loadError}
-            </div>
-          )}
           {saveError && (
             <div className="mb-5 rounded px-4 py-3 text-sm" style={{ background: "rgba(178,58,46,0.08)", border: "1px solid #E3B0A8", color: RED }}>
               {saveError}
@@ -328,14 +241,8 @@ export default function App() {
           {view === "intro" && (
             <IntroView
               onStart={startQuiz}
-              studentCode={studentCode}
-              studentName={studentName}
-              onStudentCodeChange={setStudentCode}
-              onStudentNameChange={setStudentName}
-              identityError={identityError}
-              starting={starting}
               clearing={clearing}
-              progress={progress}
+              progress={reviewProgress}
               reviewCount={reviewList.filter((r) => r.daysLeft <= 0).length}
               serifStyle={serifStyle}
               monoStyle={monoStyle}
@@ -348,11 +255,11 @@ export default function App() {
 
           {view === "quiz" && (
             <QuizView
-              question={quizQuestions[current]}
-              index={current}
-              total={quizQuestions.length}
-              selected={answers[quizQuestions[current].id]}
-              onSelect={(optionId) => selectOption(quizQuestions[current].id, optionId)}
+              question={attempt.questions[attempt.currentQuestionIndex]}
+              index={attempt.currentQuestionIndex}
+              total={attempt.questions.length}
+              selected={attempt.answers[attempt.questions[attempt.currentQuestionIndex].id]}
+              onSelect={(optionId) => selectOption(attempt.questions[attempt.currentQuestionIndex].id, optionId)}
               onNext={goNext}
               onPrev={goPrev}
               finishing={finishing}
@@ -366,14 +273,11 @@ export default function App() {
 
           {view === "results" && (
             <ResultsView
-              score={lastScore}
-              studentName={verifiedIdentity?.studentName}
-              total={quizQuestions.length}
+              score={confirmedResult.correctCount}
+              total={attempt.questions.length}
               wrongAnswers={attemptResults.wrongAnswers}
               reviewList={reviewList}
-              identityError={identityError}
-              starting={starting}
-              actionsDisabled={finishing || starting || clearing}
+              actionsDisabled={finishing || clearing}
               onRetry={startQuiz}
               onReset={resetProgress}
               serifStyle={serifStyle}
@@ -387,7 +291,7 @@ export default function App() {
         </div>
 
         <p style={{ ...monoStyle, color: "#6b7d70" }} className="text-[10px] text-center mt-3 tracking-wide">
-          {saving ? "儲存進度中…" : "作答紀錄會同步儲存到 Firebase"}
+          {view === "results" ? "紀錄已保存" : "作答進度由共用同步服務保留"}
         </p>
       </div>
     </div>
@@ -399,12 +303,6 @@ export default function App() {
 --------------------------------------------------------- */
 function IntroView({
   onStart,
-  studentCode,
-  studentName,
-  onStudentCodeChange,
-  onStudentNameChange,
-  identityError,
-  starting,
   clearing,
   progress,
   reviewCount,
@@ -424,43 +322,6 @@ function IntroView({
         共 20 題，每題 5 分，作答結束後會標示錯題並記錄錯誤次數，並依艾賓浩斯遺忘曲線安排下次複習時間。
       </p>
 
-      <div className="space-y-3 mb-5">
-        <label className="block">
-          <span style={{ color: INKDARK }} className="block text-sm font-bold mb-1">
-            學生專屬代碼
-          </span>
-          <input
-            value={studentCode}
-            onChange={(event) => onStudentCodeChange(event.target.value)}
-            placeholder="例如：20260726-001"
-            autoComplete="off"
-            className="w-full rounded border bg-white px-3 py-2.5 text-sm"
-            style={{ borderColor: "#C9BFA8", color: INKDARK }}
-          />
-        </label>
-        <label className="block">
-          <span style={{ color: INKDARK }} className="block text-sm font-bold mb-1">
-            測試人姓名
-          </span>
-          <input
-            value={studentName}
-            onChange={(event) => onStudentNameChange(event.target.value)}
-            maxLength={40}
-            autoComplete="name"
-            className="w-full rounded border bg-white px-3 py-2.5 text-sm"
-            style={{ borderColor: "#C9BFA8", color: INKDARK }}
-          />
-        </label>
-        <p style={{ color: "#6f675b" }} className="text-xs">
-          姓名與專屬代碼只用於辨識本次測驗及保存歷次成績。
-        </p>
-        {identityError && (
-          <p role="alert" style={{ color: RED }} className="text-sm">
-            {identityError}
-          </p>
-        )}
-      </div>
-
       {attempted > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatBox label="已作答題數" value={attempted} INK={INK} INKDARK={INKDARK} monoStyle={monoStyle} />
@@ -471,15 +332,13 @@ function IntroView({
 
       <button
         onClick={onStart}
-        disabled={starting || clearing}
+        disabled={clearing}
         style={{ background: INK, ...serifStyle }}
         className="w-full py-3.5 rounded text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50"
       >
         {clearing
           ? "清除中…"
-          : starting
-            ? "驗證中…"
-            : attempted > 0
+          : attempted > 0
               ? "重新測驗"
               : "開始測驗"}
       </button>
@@ -572,17 +431,12 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, studentName, total, wrongAnswers, reviewList, identityError, starting, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+function ResultsView({ score, total, wrongAnswers, reviewList, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
   return (
     <div>
-      {identityError && (
-        <p role="alert" style={{ color: RED }} className="text-sm mb-4">
-          {identityError}
-        </p>
-      )}
       <div className="text-center mb-6">
         <p style={{ color: INKDARK }} className="text-sm font-bold mb-2">
-          測試人：{studentName}
+          已驗證學生
         </p>
         <p style={{ ...monoStyle, color: "#8a8272" }} className="text-[10px] tracking-[0.25em] uppercase mb-1">
           得分
@@ -674,10 +528,10 @@ function ResultsView({ score, studentName, total, wrongAnswers, reviewList, iden
 
       <div className="flex gap-3">
         <button onClick={onReset} disabled={actionsDisabled} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold disabled:opacity-50">
-          清除紀錄
+          清除本次進度
         </button>
         <button onClick={onRetry} disabled={actionsDisabled} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-50">
-          {starting ? "驗證中…" : "重新測驗"}
+          重新測驗
         </button>
       </div>
     </div>

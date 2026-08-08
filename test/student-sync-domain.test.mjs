@@ -10,6 +10,7 @@ import {
   pendingAttemptStorageKey,
   progressStorageKey,
   recoverStudentSyncOnline,
+  refreshProgressAfterSubmission,
   resolveProgressConflict,
   toLocalProgressSnapshot,
 } from "../src/studentSyncDomain.js";
@@ -829,4 +830,59 @@ test("student sync errors preserve distinct actionable states", () => {
     })),
     "progress-conflict",
   );
+});
+
+test("submission refresh makes the first retry save use the latest server revision", async () => {
+  const storage = createMemoryStorage();
+  const saveRequests = [];
+  const client = createStudentSyncClient({
+    storage,
+    debounceMs: 0,
+    callSave: async (request) => {
+      saveRequests.push(request);
+      return { revision: request.baseRevision + 1 };
+    },
+    callSubmit: async () => ({}),
+  });
+  client.replaceLocalProgress({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    progress: { revision: 4, quizVersion: 1, kind: "multiple-choice", activeAttempt: {}, reviewProgress: {} },
+  });
+
+  const refreshed = await refreshProgressAfterSubmission({
+    loadProgress: async () => ({
+      studentId: "student-1",
+      quizId: "biology-cell-microscope-1",
+      quizVersion: 1,
+      kind: "multiple-choice",
+      revision: 5,
+      activeAttempt: null,
+      reviewProgress: { q1: { errorCount: 1 } },
+    }),
+    client,
+    credentials: { studentCode: "20260808-001", studentName: "學生一" },
+    identity: { studentId: "student-1" },
+    quiz: { id: "biology-cell-microscope-1", version: 1, kind: "multiple-choice" },
+  });
+  assert.equal(refreshed.revision, 5);
+
+  const retryProgress = {
+    ...refreshed,
+    activeAttempt: { attemptId: "retry-1" },
+  };
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    progress: retryProgress,
+    request: buildTrustedProgressRequest({
+      progress: retryProgress,
+      credentials: { studentCode: "20260808-001", studentName: "學生一" },
+      quiz: { id: "biology-cell-microscope-1", version: 1 },
+    }),
+  });
+  await client.flush();
+
+  assert.equal(saveRequests[0].baseRevision, 5);
+  client.dispose();
 });

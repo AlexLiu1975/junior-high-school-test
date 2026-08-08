@@ -14,6 +14,7 @@ import {
   classifyStudentSyncError,
   createStudentSyncClient,
   recoverStudentSyncOnline,
+  refreshProgressAfterSubmission,
   resolveProgressConflict,
   toLocalProgressSnapshot,
 } from "./studentSyncDomain.js";
@@ -293,6 +294,18 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
               submission: request,
               request,
             });
+            const refreshedProgress = await refreshProgressAfterSubmission({
+              loadProgress: loadStudentProgress,
+              client: clientRef.current,
+              credentials: credentialsRef.current,
+              identity: session.identity,
+              quiz,
+            });
+            if (mountedRef.current) {
+              const nextSession = { ...session, progress: refreshedProgress };
+              sessionRef.current = nextSession;
+              setSession(nextSession);
+            }
             applySyncReadiness(session.identity);
             return result;
           } catch (error) {
