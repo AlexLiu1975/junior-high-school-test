@@ -97,7 +97,7 @@ function timestampToMs(value) {
 }
 
 export function toLocalProgressSnapshot(progress, { pendingSync, now = Date.now } = {}) {
-  const updatedAtMs = timestampToMs(progress) || (pendingSync === true ? now() : 0);
+  const updatedAtMs = pendingSync === true ? now() : timestampToMs(progress);
   return {
     updatedAtMs,
     pendingSync: pendingSync === true,
@@ -202,6 +202,16 @@ export function createStudentSyncClient({
   let retryNeeded = false;
   let submissionSequence = 0;
 
+  function getReadiness(studentId, quizId) {
+    if (queuedSave || activeSave || timer !== null || retryNeeded) {
+      return { status: "progress-pending" };
+    }
+    if (store.load(pendingAttemptStorageKey(studentId, quizId))) {
+      return { status: "pending-attempt" };
+    }
+    return { status: "synced" };
+  }
+
   function emitSaveState(status, details = {}) {
     if (!disposed && typeof onSaveState === "function") {
       onSaveState({ status, ...details });
@@ -227,8 +237,10 @@ export function createStudentSyncClient({
     clearTimer();
     const job = queuedSave;
     queuedSave = null;
+    let didAcknowledge = false;
+    let acknowledgedResult = null;
 
-    activeSave = (async () => {
+    const operation = (async () => {
       try {
         const result = await callSave(job.request);
         if (!disposed && queuedSave && Number.isSafeInteger(result?.revision)) {
@@ -252,7 +264,8 @@ export function createStudentSyncClient({
             job.key,
             toLocalProgressSnapshot(acknowledged, { pendingSync: false, now }),
           );
-          emitSaveState("synced", { result });
+          didAcknowledge = true;
+          acknowledgedResult = result;
         }
         return result;
       } catch (error) {
@@ -270,10 +283,17 @@ export function createStudentSyncClient({
       }
     })();
 
-    return activeSave.finally(() => {
+    activeSave = operation.finally(() => {
       activeSave = null;
-      if (queuedSave) scheduleSave(0);
+      if (queuedSave) {
+        scheduleSave(0);
+      } else if (didAcknowledge && !disposed) {
+        emitSaveState(getReadiness(job.studentId, job.quizId).status, {
+          result: acknowledgedResult,
+        });
+      }
     });
+    return activeSave;
   }
 
   return {
@@ -284,6 +304,8 @@ export function createStudentSyncClient({
     loadPendingAttempt(studentId, quizId) {
       return store.load(pendingAttemptStorageKey(studentId, quizId));
     },
+
+    getReadiness,
 
     replaceLocalProgress({ studentId, quizId, progress }) {
       if (disposed) throw new Error("student-sync-client-disposed");
@@ -299,10 +321,24 @@ export function createStudentSyncClient({
     queueSave({ studentId, quizId, progress, request }) {
       if (disposed) throw new Error("student-sync-client-disposed");
       const key = progressStorageKey(studentId, quizId);
+      const stored = store.load(key);
+      const acknowledgedRevision = Number.isSafeInteger(stored?.revision)
+        && stored.revision >= 0
+        ? stored.revision
+        : 0;
+      const controlledProgress = { ...progress, revision: acknowledgedRevision };
+      const controlledRequest = { ...request, baseRevision: acknowledgedRevision };
       generation += 1;
       retryNeeded = false;
-      store.save(key, toLocalProgressSnapshot(progress, { pendingSync: true, now }));
-      queuedSave = { key, progress, request, generation };
+      store.save(key, toLocalProgressSnapshot(controlledProgress, { pendingSync: true, now }));
+      queuedSave = {
+        key,
+        studentId,
+        quizId,
+        progress: controlledProgress,
+        request: controlledRequest,
+        generation,
+      };
       emitSaveState("pending");
       scheduleSave();
     },
@@ -371,14 +407,12 @@ export async function recoverStudentSyncOnline({
 }) {
   await client.flush();
   const pending = client.loadPendingAttempt(studentId, quizId);
-  if (!pending) return { status: "synced" };
-  if (!allowSubmitRetry) return { status: "pending-attempt" };
-  await client.retryPendingAttempt({
-    studentId,
-    quizId,
-    buildRequest: buildSubmissionRequest,
-  });
-  return client.loadPendingAttempt(studentId, quizId)
-    ? { status: "pending-attempt" }
-    : { status: "synced" };
+  if (pending && allowSubmitRetry) {
+    await client.retryPendingAttempt({
+      studentId,
+      quizId,
+      buildRequest: buildSubmissionRequest,
+    });
+  }
+  return client.getReadiness(studentId, quizId);
 }

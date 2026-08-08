@@ -101,6 +101,17 @@ test("callable Admin Timestamp transport converts to milliseconds", () => {
   assert.equal(snapshot.revision, 4);
 });
 
+test("pending progress always receives a fresh local modification time", () => {
+  const snapshot = toLocalProgressSnapshot({
+    revision: 4,
+    activeAttempt: PROGRESS.activeAttempt,
+    reviewProgress: {},
+    updatedAtMs: 100,
+  }, { pendingSync: true, now: () => 900 });
+
+  assert.equal(snapshot.updatedAtMs, 900);
+});
+
 test("trusted credentials override and remove identity-like renderer fields", () => {
   const request = buildTrustedSubmissionRequest({
     submission: {
@@ -283,6 +294,94 @@ test("queued saves persist locally first and coalesce to the latest cloud reques
   assert.equal(JSON.parse(storage.getItem(
     "jhst:progress:student-1:english-review-2",
   )).pendingSync, false);
+  client.dispose();
+});
+
+test("save revisions are owned by the acknowledged local snapshot", async () => {
+  const storage = createMemoryStorage();
+  const requests = [];
+  const client = createStudentSyncClient({
+    storage,
+    debounceMs: 60_000,
+    callSave: async (request) => {
+      requests.push(request);
+      return { ...PROGRESS, revision: request.baseRevision + 1 };
+    },
+    callSubmit: async () => ({}),
+  });
+  client.replaceLocalProgress({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: { ...PROGRESS, revision: 7, updatedAtMs: 700 },
+  });
+
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: { ...PROGRESS, revision: 99 },
+    request: { ...PROGRESS, baseRevision: 99 },
+  });
+  assert.equal(client.load("student-1", "english-review-2").revision, 7);
+  await client.flush();
+
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: { ...PROGRESS, revision: 0 },
+    request: { ...PROGRESS, baseRevision: 0 },
+  });
+  await client.flush();
+
+  assert.deepEqual(requests.map((request) => request.baseRevision), [7, 8]);
+  client.dispose();
+});
+
+test("readiness never reports synced while progress or attempt work remains", async () => {
+  const storage = createMemoryStorage();
+  const states = [];
+  const client = createStudentSyncClient({
+    storage,
+    debounceMs: 60_000,
+    onSaveState: (state) => states.push(state.status),
+    callSave: async (request) => ({ ...PROGRESS, revision: request.baseRevision + 1 }),
+    callSubmit: async () => {
+      throw new Error("offline");
+    },
+  });
+
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: PROGRESS,
+    request: PROGRESS,
+  });
+  assert.deepEqual(client.getReadiness("student-1", "english-review-2"), {
+    status: "progress-pending",
+  });
+  await client.flush();
+  assert.deepEqual(client.getReadiness("student-1", "english-review-2"), {
+    status: "synced",
+  });
+
+  await assert.rejects(client.submit({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    submission: { attemptId: "run-1" },
+    request: { attemptId: "run-1" },
+  }), /offline/);
+  states.length = 0;
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: PROGRESS,
+    request: PROGRESS,
+  });
+  await client.flush();
+
+  assert.deepEqual(client.getReadiness("student-1", "english-review-2"), {
+    status: "pending-attempt",
+  });
+  assert.equal(states.includes("synced"), false);
   client.dispose();
 });
 

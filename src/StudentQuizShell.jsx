@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ensureSignedIn,
   loadStudentProgress,
@@ -32,6 +32,21 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const rendererRef = useRef(null);
   const sessionRef = useRef(null);
 
+  const applySyncReadiness = useCallback((identity) => {
+    const client = clientRef.current;
+    if (!client || !identity) return null;
+    const readiness = client.getReadiness(identity.studentId, quiz.id);
+    if (!mountedRef.current) return readiness;
+    if (readiness.status === "synced") {
+      setStatus("synced");
+    } else if (readiness.status === "pending-attempt") {
+      setStatus("submit-failed");
+    } else {
+      setStatus("local-pending");
+    }
+    return readiness;
+  }, [quiz.id]);
+
   useEffect(() => {
     mountedRef.current = true;
     const retryWhenOnline = () => {
@@ -50,9 +65,8 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
           quiz,
         }),
       })
-        .then((result) => {
-          if (!mountedRef.current) return;
-          setStatus(result.status === "synced" ? "synced" : "submit-failed");
+        .then(() => {
+          applySyncReadiness(currentSession.identity);
         })
         .catch((error) => {
           if (mountedRef.current) setStatus(classifyStudentSyncError(error));
@@ -64,7 +78,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       window.removeEventListener("online", retryWhenOnline);
       clientRef.current?.dispose();
     };
-  }, [quiz]);
+  }, [applySyncReadiness, quiz]);
 
   function requestForProgress(progress) {
     return buildTrustedProgressRequest({
@@ -100,7 +114,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       }
       setRenderer(() => loadedModule.default);
       rendererRef.current = loadedModule.default;
-      setStatus("synced");
+      applySyncReadiness(identity);
     } catch (error) {
       console.error("Quiz renderer load failed", error);
       if (mountedRef.current) setStatus("unavailable");
@@ -151,10 +165,8 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         callSubmit: submitQuizAttempt,
         onSaveState: (saveState) => {
           if (!mountedRef.current) return;
-          if (saveState.status === "pending") {
-            setStatus("local-pending");
-          } else if (saveState.status === "synced") {
-            setStatus("synced");
+          if (["pending", "progress-pending", "pending-attempt", "synced"].includes(saveState.status)) {
+            applySyncReadiness(identity);
           } else if (saveState.errorState === "progress-conflict") {
             void reloadProgressConflict(identity);
           } else if (saveState.status === "error") {
@@ -177,6 +189,13 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         setConflict({ ...resolution, identity });
         setStatus("conflict");
         return;
+      }
+      if (resolution.mode === "cloud") {
+        clientRef.current.replaceLocalProgress({
+          studentId: identity.studentId,
+          quizId: quiz.id,
+          progress: resolution.value,
+        });
       }
       await enterQuiz(identity, resolution.value, resolution.mode === "local" && local?.pendingSync);
     } catch (error) {
@@ -219,13 +238,11 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
     const value = source === "local"
       ? { ...conflict.local, revision: conflict.cloud.revision }
       : conflict.cloud;
-    if (source === "cloud") {
-      clientRef.current.replaceLocalProgress({
-        studentId: conflict.identity.studentId,
-        quizId: quiz.id,
-        progress: value,
-      });
-    }
+    clientRef.current.replaceLocalProgress({
+      studentId: conflict.identity.studentId,
+      quizId: quiz.id,
+      progress: value,
+    });
     void enterQuiz(conflict.identity, value, source === "local");
   }
 
@@ -235,7 +252,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
           const storedProgress = clientRef.current.load(session.identity.studentId, quiz.id);
           const versionedProgress = {
             ...nextProgress,
-            revision: nextProgress?.revision ?? storedProgress?.revision ?? 0,
+            revision: storedProgress?.revision ?? 0,
             quizVersion: quiz.version,
             kind: quiz.kind,
           };
@@ -254,7 +271,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         async flush() {
           try {
             const result = await clientRef.current.flush();
-            if (mountedRef.current) setStatus("synced");
+            applySyncReadiness(session.identity);
             return result;
           } catch (error) {
             if (mountedRef.current) setStatus(classifyStudentSyncError(error));
@@ -276,7 +293,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
               submission: request,
               request,
             });
-            if (mountedRef.current) setStatus("synced");
+            applySyncReadiness(session.identity);
             return result;
           } catch (error) {
             if (mountedRef.current) {
