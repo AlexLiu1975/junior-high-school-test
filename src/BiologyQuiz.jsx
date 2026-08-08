@@ -64,25 +64,34 @@ export default function BiologyQuiz({ progress, sync }) {
     if (!lifecycle.claimStart()) return;
     try {
       const nextAttempt = biologyQuizAdapter.createAttempt();
+      saveAttempt(nextAttempt);
       lifecycle.restoreAttempt(nextAttempt.questions);
       setSaveError(null);
       setConfirmedResult(null);
       setAttempt(nextAttempt);
       setFinishing(false);
       setView("quiz");
-      saveAttempt(nextAttempt);
+    } catch (error) {
+      console.error("Biology retry could not start", error);
+      setSaveError(
+        error?.message === "progress-refresh-required"
+          ? "完成紀錄已保存；請重新整理頁面後再開始新的測驗。"
+          : "新測驗尚未建立，請稍後重試。",
+      );
     } finally {
       lifecycle.releaseStart();
     }
   };
 
   const selectOption = (qid, optionId) => {
+    if (!attemptLifecycleRef.current.canMutateAttempt()) return;
     const nextAttempt = { ...attempt, answers: { ...attempt.answers, [qid]: optionId } };
     setAttempt(nextAttempt);
     saveAttempt(nextAttempt);
   };
 
   const goNext = () => {
+    if (!attemptLifecycleRef.current.canMutateAttempt()) return;
     const next = attemptLifecycleRef.current.move(attempt.currentQuestionIndex, 1);
     if (next !== attempt.currentQuestionIndex) {
       const nextAttempt = { ...attempt, currentQuestionIndex: next };
@@ -94,6 +103,7 @@ export default function BiologyQuiz({ progress, sync }) {
   };
 
   const goPrev = () => {
+    if (!attemptLifecycleRef.current.canMutateAttempt()) return;
     const nextAttempt = {
       ...attempt,
       currentQuestionIndex: attemptLifecycleRef.current.move(attempt.currentQuestionIndex, -1),
@@ -109,11 +119,12 @@ export default function BiologyQuiz({ progress, sync }) {
     setFinishing(true);
     try {
       setSaveError(null);
+      const attemptSnapshot = structuredClone(attempt);
       const today = new Date();
       const nextReviewProgress = { ...reviewProgress };
 
-      attempt.questions.forEach((q) => {
-        const wasCorrect = isAnswerCorrect(q, attempt.answers[q.id]);
+      attemptSnapshot.questions.forEach((q) => {
+        const wasCorrect = isAnswerCorrect(q, attemptSnapshot.answers[q.id]);
 
         const prevEntry = nextReviewProgress[q.id] || { errorCount: 0, stage: -1 };
         if (wasCorrect) {
@@ -136,12 +147,13 @@ export default function BiologyQuiz({ progress, sync }) {
         }
       });
 
-      const submissionState = { ...attempt, reviewProgress: nextReviewProgress };
-      saveAttempt(attempt, nextReviewProgress);
+      const submissionState = { ...attemptSnapshot, reviewProgress: nextReviewProgress };
+      saveAttempt(attemptSnapshot, nextReviewProgress);
       await sync.flush();
       const result = biologyQuizAdapter.renderResult(
         await sync.submit(biologyQuizAdapter.buildSubmission(submissionState)),
       );
+      setAttempt(attemptSnapshot);
       setReviewProgress(nextReviewProgress);
       setConfirmedResult(result);
       setView("results");
@@ -396,7 +408,8 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
             <button
               key={opt.id}
               onClick={() => onSelect(opt.id)}
-              className="w-full text-left flex items-start gap-3 px-4 py-3 rounded transition"
+              disabled={finishing}
+              className="w-full text-left flex items-start gap-3 px-4 py-3 rounded transition disabled:opacity-60"
               style={{
                 background: isSelected ? "rgba(44,75,124,0.08)" : "white",
                 border: `1.5px solid ${isSelected ? INK : "#DCD4BC"}`,
@@ -417,7 +430,7 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
       </div>
 
       <div className="flex gap-3">
-        <button onClick={onPrev} disabled={index === 0} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold disabled:opacity-30">
+        <button onClick={onPrev} disabled={index === 0 || finishing} style={{ ...serifStyle, color: INKDARK, borderColor: "#C9BFA8" }} className="px-4 py-2.5 rounded border text-sm font-bold disabled:opacity-30">
           上一題
         </button>
         <button onClick={onNext} disabled={selected === undefined || finishing} style={{ ...serifStyle, background: INK }} className="flex-1 py-2.5 rounded text-white text-sm font-bold disabled:opacity-30">

@@ -7,6 +7,7 @@ const STATUS_MESSAGES = {
   "progress-conflict": "雲端進度已更新，請重新載入並選擇要繼續的版本。",
   submitting: "正在保存完成紀錄…",
   "submit-failed": "完成紀錄尚未保存，待送資料仍保留在這個瀏覽器。",
+  "refresh-required": "完成紀錄已保存，但無法更新最新進度；請重新整理頁面後再開始新的測驗。",
   "missing-config": "Firebase 設定缺少，暫時只能保存在這個瀏覽器。",
   "bad-identity": "找不到相符的學生姓名與專屬代碼。",
   "inactive-student": "這名學生已停用，無法開始新的測驗。",
@@ -20,6 +21,7 @@ export default function SyncStatus({ status, message }) {
   if (!text) return null;
   const isError = [
     "submit-failed",
+    "refresh-required",
     "missing-config",
     "bad-identity",
     "inactive-student",

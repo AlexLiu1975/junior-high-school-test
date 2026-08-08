@@ -17,6 +17,7 @@ import {
   refreshProgressAfterSubmission,
   resolveProgressConflict,
   toLocalProgressSnapshot,
+  submitWithProgressRefresh,
 } from "./studentSyncDomain.js";
 import SyncStatus from "./SyncStatus.jsx";
 
@@ -32,6 +33,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const credentialsRef = useRef(null);
   const rendererRef = useRef(null);
   const sessionRef = useRef(null);
+  const refreshRequiredRef = useRef(false);
 
   const applySyncReadiness = useCallback((identity) => {
     const client = clientRef.current;
@@ -175,6 +177,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
           }
         },
       });
+      refreshRequiredRef.current = false;
       const local = clientRef.current.load(identity.studentId, quiz.id);
       if (local?.quizVersion !== undefined && local.quizVersion !== quiz.version) {
         throw Object.assign(new Error("invalid-local-quiz-version"), {
@@ -250,6 +253,10 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const syncCallbacks = session && clientRef.current
     ? {
         queueSave(nextProgress) {
+          if (refreshRequiredRef.current) {
+            setStatus("refresh-required");
+            throw new Error("progress-refresh-required");
+          }
           const storedProgress = clientRef.current.load(session.identity.studentId, quiz.id);
           const versionedProgress = {
             ...nextProgress,
@@ -288,26 +295,34 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
             quiz,
           });
           try {
-            const result = await clientRef.current.submit({
-              studentId: session.identity.studentId,
-              quizId: quiz.id,
-              submission: request,
-              request,
+            const outcome = await submitWithProgressRefresh({
+              submit: () => clientRef.current.submit({
+                studentId: session.identity.studentId,
+                quizId: quiz.id,
+                submission: request,
+                request,
+              }),
+              refresh: () => refreshProgressAfterSubmission({
+                loadProgress: loadStudentProgress,
+                client: clientRef.current,
+                credentials: credentialsRef.current,
+                identity: session.identity,
+                quiz,
+              }),
             });
-            const refreshedProgress = await refreshProgressAfterSubmission({
-              loadProgress: loadStudentProgress,
-              client: clientRef.current,
-              credentials: credentialsRef.current,
-              identity: session.identity,
-              quiz,
-            });
+            if (outcome.refreshError) {
+              refreshRequiredRef.current = true;
+              if (mountedRef.current) setStatus("refresh-required");
+              return outcome.result;
+            }
+            refreshRequiredRef.current = false;
             if (mountedRef.current) {
-              const nextSession = { ...session, progress: refreshedProgress };
+              const nextSession = { ...session, progress: outcome.refreshedProgress };
               sessionRef.current = nextSession;
               setSession(nextSession);
             }
             applySyncReadiness(session.identity);
-            return result;
+            return outcome.result;
           } catch (error) {
             if (mountedRef.current) {
               const errorState = classifyStudentSyncError(error);

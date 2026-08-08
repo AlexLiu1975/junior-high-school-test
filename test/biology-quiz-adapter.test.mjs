@@ -77,6 +77,26 @@ test("biology builds a complete submission without client score or identity", ()
     answers: savedAttempt.answers,
     reviewProgress: {},
   });
+
+  const submission = biologyQuizAdapter.buildSubmission(state);
+  state.answers.q20 = "q20-o1";
+  state.optionOrder.q20.reverse();
+  assert.equal(submission.answers.q20, "q20-o4");
+  assert.deepEqual(submission.optionOrder.q20, optionOrder.q20);
+});
+
+test("biology malformed saved orders always use the stable restore error", () => {
+  for (const malformed of [
+    {},
+    { ...savedAttempt, questionOrder: null },
+    { ...savedAttempt, optionOrder: null },
+    { ...savedAttempt, optionOrder: { ...savedAttempt.optionOrder, q20: null } },
+  ]) {
+    assert.throws(
+      () => biologyQuizAdapter.restoreAttempt(malformed),
+      (error) => error instanceof Error && error.message === "invalid-biology-attempt",
+    );
+  }
 });
 
 test("biology uses only the server-confirmed score result", () => {

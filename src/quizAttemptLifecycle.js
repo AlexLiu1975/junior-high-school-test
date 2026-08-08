@@ -19,6 +19,7 @@ export function createQuizAttemptLifecycle() {
   };
 
   return {
+    canMutateAttempt: () => activeOperation === null,
     claimStart: () => claim("start"),
     releaseStart: () => release("start"),
     claimFinish: () => claim("finish"),

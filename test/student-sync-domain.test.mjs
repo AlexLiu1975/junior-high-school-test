@@ -13,6 +13,7 @@ import {
   refreshProgressAfterSubmission,
   resolveProgressConflict,
   toLocalProgressSnapshot,
+  submitWithProgressRefresh,
 } from "../src/studentSyncDomain.js";
 
 function createMemoryStorage() {
@@ -884,5 +885,37 @@ test("submission refresh makes the first retry save use the latest server revisi
   await client.flush();
 
   assert.equal(saveRequests[0].baseRevision, 5);
+  client.dispose();
+});
+
+test("confirmed submission survives progress refresh failure without recreating pending data", async () => {
+  const storage = createMemoryStorage();
+  let submitCalls = 0;
+  const client = createStudentSyncClient({
+    storage,
+    callSave: async () => ({}),
+    callSubmit: async () => {
+      submitCalls += 1;
+      return { attemptId: "run-confirmed", resultType: "score", score: 80 };
+    },
+  });
+
+  const outcome = await submitWithProgressRefresh({
+    submit: () => client.submit({
+      studentId: "student-1",
+      quizId: "biology-cell-microscope-1",
+      submission: { attemptId: "run-confirmed" },
+      request: { attemptId: "run-confirmed" },
+    }),
+    refresh: async () => {
+      throw new Error("refresh-offline");
+    },
+  });
+
+  assert.equal(submitCalls, 1);
+  assert.equal(outcome.result.attemptId, "run-confirmed");
+  assert.equal(outcome.refreshedProgress, null);
+  assert.match(outcome.refreshError.message, /refresh-offline/);
+  assert.equal(client.loadPendingAttempt("student-1", "biology-cell-microscope-1"), null);
   client.dispose();
 });

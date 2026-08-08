@@ -128,11 +128,14 @@ test("an empty question bank returns the exact start error", () => {
 test("synchronous guards make finish, retry, and clear mutually exclusive", () => {
   const lifecycle = createQuizAttemptLifecycle();
 
+  assert.equal(lifecycle.canMutateAttempt(), true);
   assert.equal(lifecycle.claimFinish(), true);
+  assert.equal(lifecycle.canMutateAttempt(), false);
   assert.equal(lifecycle.claimFinish(), false);
   assert.equal(lifecycle.claimStart(), false);
   assert.equal(lifecycle.claimClear(), false);
   lifecycle.releaseFinish();
+  assert.equal(lifecycle.canMutateAttempt(), true);
 
   assert.equal(lifecycle.claimStart(), true);
   assert.equal(lifecycle.claimClear(), false);

@@ -209,6 +209,19 @@ export async function refreshProgressAfterSubmission({
   return refreshed;
 }
 
+export async function submitWithProgressRefresh({ submit, refresh }) {
+  const result = await submit();
+  try {
+    return {
+      result,
+      refreshedProgress: await refresh(),
+      refreshError: null,
+    };
+  } catch (refreshError) {
+    return { result, refreshedProgress: null, refreshError };
+  }
+}
+
 export function createStudentSyncClient({
   storage,
   callSave,

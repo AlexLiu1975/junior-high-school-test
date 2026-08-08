@@ -76,6 +76,11 @@ export const biologyQuizAdapter = Object.freeze({
       || typeof saved !== "object"
       || typeof saved.attemptId !== "string"
       || saved.attemptId.length === 0
+      || !Array.isArray(saved.questionOrder)
+      || saved.optionOrder === null
+      || typeof saved.optionOrder !== "object"
+      || Array.isArray(saved.optionOrder)
+      || saved.questionOrder.some((questionId) => !Array.isArray(saved.optionOrder[questionId]))
       || !Number.isInteger(saved.currentQuestionIndex)
       || saved.currentQuestionIndex < 0
       || saved.currentQuestionIndex >= questionsById.size
