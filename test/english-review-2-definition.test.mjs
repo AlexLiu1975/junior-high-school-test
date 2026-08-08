@@ -61,3 +61,12 @@ test("unknown answer IDs reject while omitted answers count wrong", () => {
     wrongIds: ENGLISH_REVIEW_2.questions.map((question) => question.id),
   });
 });
+
+test("the public scorer gives malformed outer submissions a stable error", () => {
+  for (const payload of [null, [], 0, "answers"]) {
+    assert.throws(
+      () => scoreEnglishReview2(payload),
+      /invalid-submission/,
+    );
+  }
+});

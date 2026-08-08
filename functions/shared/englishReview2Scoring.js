@@ -4,7 +4,12 @@ function invalidSubmission() {
   throw new Error("invalid-submission");
 }
 
-export function scoreEnglishReview2({ answers } = {}) {
+export function scoreEnglishReview2(payload) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    invalidSubmission();
+  }
+
+  const { answers } = payload;
   if (answers === null || typeof answers !== "object" || Array.isArray(answers)) {
     invalidSubmission();
   }
