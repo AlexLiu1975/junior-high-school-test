@@ -6,6 +6,16 @@ import {
   validateQuizSubmission,
 } from "../functions/shared/quizRegistry.js";
 
+function canonicalMultipleChoiceOrder(definition) {
+  return {
+    questionOrder: definition.questions.map(({ id }) => id),
+    optionOrder: Object.fromEntries(definition.questions.map((question) => [
+      question.id,
+      question.options.map(({ id }) => id),
+    ])),
+  };
+}
+
 test("catalog exposes three stable quizzes in display order", () => {
   assert.deepEqual(QUIZ_CATALOG.map((quiz) => quiz.id), [
     "biology-cell-microscope-1",
@@ -39,12 +49,62 @@ test("registry resolves only an exact stable quiz ID and version", () => {
   assert.equal(getQuizDefinition("english-review-2", "1"), null);
 });
 
+test("catalog metadata and trusted definitions are deeply immutable", () => {
+  assert.equal(Object.isFrozen(QUIZ_CATALOG), true);
+  for (const catalogQuiz of QUIZ_CATALOG) {
+    assert.equal(Object.isFrozen(catalogQuiz), true);
+    const definition = getQuizDefinition(catalogQuiz.id, catalogQuiz.version);
+    assert.equal(Object.isFrozen(definition), true);
+
+    const originalKind = definition.kind;
+    try {
+      assert.throws(() => {
+        definition.kind = "tampered";
+      }, TypeError);
+    } finally {
+      if (definition.kind !== originalKind) definition.kind = originalKind;
+    }
+
+    if (definition.questions) {
+      const questions = definition.questions;
+      const originalLength = questions.length;
+      const firstQuestion = questions[0];
+      const firstOption = firstQuestion.options[0];
+      const originalCorrect = firstOption.correct;
+      assert.equal(Object.isFrozen(questions), true);
+      assert.equal(Object.isFrozen(firstQuestion), true);
+      assert.equal(Object.isFrozen(firstQuestion.options), true);
+      assert.equal(Object.isFrozen(firstOption), true);
+      try {
+        assert.throws(() => questions.push(firstQuestion), TypeError);
+      } finally {
+        if (questions.length !== originalLength) questions.length = originalLength;
+      }
+      try {
+        assert.throws(() => {
+          firstOption.correct = !originalCorrect;
+        }, TypeError);
+      } finally {
+        if (firstOption.correct !== originalCorrect) firstOption.correct = originalCorrect;
+      }
+    }
+
+    if (definition.elements) {
+      assert.equal(Object.isFrozen(definition.elements), true);
+      assert.equal(Object.isFrozen(definition.elements[0]), true);
+    }
+    assert.equal(getQuizDefinition(catalogQuiz.id, catalogQuiz.version).kind, originalKind);
+  }
+});
+
 test("multiple-choice submissions count missing answers wrong and reject unknown IDs", () => {
   const definition = getQuizDefinition("english-review-2", 1);
+  const order = canonicalMultipleChoiceOrder(definition);
   const firstQuestion = definition.questions[0];
   const correctAnswer = firstQuestion.options.find(({ correct }) => correct).id;
 
   assert.deepEqual(validateQuizSubmission(definition, {
+    ...order,
     answers: { [firstQuestion.id]: correctAnswer },
   }), {
     resultType: "score",
@@ -54,11 +114,45 @@ test("multiple-choice submissions count missing answers wrong and reject unknown
     wrongIds: definition.questions.slice(1).map(({ id }) => id),
   });
   assert.throws(
-    () => validateQuizSubmission(definition, { answers: { unknown: correctAnswer } }),
+    () => validateQuizSubmission(definition, {
+      ...order,
+      answers: { unknown: correctAnswer },
+    }),
     /invalid-submission/,
   );
   assert.throws(
-    () => validateQuizSubmission(definition, { answers: { [firstQuestion.id]: "not-an-option" } }),
+    () => validateQuizSubmission(definition, {
+      ...order,
+      answers: { [firstQuestion.id]: "not-an-option" },
+    }),
+    /invalid-submission/,
+  );
+});
+
+test("English submissions require canonical question and option order", () => {
+  const definition = getQuizDefinition("english-review-2", 1);
+  const order = canonicalMultipleChoiceOrder(definition);
+  assert.throws(
+    () => validateQuizSubmission(definition, { answers: {} }),
+    /invalid-submission/,
+  );
+  assert.throws(
+    () => validateQuizSubmission(definition, {
+      ...order,
+      questionOrder: [...order.questionOrder].reverse(),
+      answers: {},
+    }),
+    /invalid-submission/,
+  );
+  assert.throws(
+    () => validateQuizSubmission(definition, {
+      ...order,
+      optionOrder: {
+        ...order.optionOrder,
+        [order.questionOrder[0]]: [...order.optionOrder[order.questionOrder[0]]].reverse(),
+      },
+      answers: {},
+    }),
     /invalid-submission/,
   );
 });

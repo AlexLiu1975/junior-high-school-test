@@ -73,6 +73,7 @@ export const ENGLISH_REVIEW_2 = {
   id: REVIEW_ID,
   version: 1,
   kind: "multiple-choice",
+  orderingPolicy: "canonical",
   subject: "English",
   title: "英語科 第2回複習考",
   catalogDescription: "第一冊 L3～L4（表位置的介系詞／Where問答／祈使句／人稱代名詞受格／can問答）",

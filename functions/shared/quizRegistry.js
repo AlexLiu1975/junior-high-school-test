@@ -4,13 +4,31 @@ import { validateMultipleChoiceSubmission } from "./multipleChoiceSubmission.js"
 import { PERIODIC_TABLE_QUIZ } from "./periodicTableDefinition.js";
 import { validatePeriodicSubmission } from "./periodicTableSubmission.js";
 
-const QUIZ_DEFINITIONS = [
+function cloneDefinition(value) {
+  if (Array.isArray(value)) return value.map(cloneDefinition);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, cloneDefinition(child)]),
+    );
+  }
+  return value;
+}
+
+function deepFreeze(value) {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+const QUIZ_DEFINITIONS = deepFreeze([
   BIOLOGY_QUIZ,
   ENGLISH_REVIEW_2,
   PERIODIC_TABLE_QUIZ,
-];
+].map(cloneDefinition));
 
-export const QUIZ_CATALOG = Object.freeze(QUIZ_DEFINITIONS.map((definition) => Object.freeze({
+export const QUIZ_CATALOG = deepFreeze(QUIZ_DEFINITIONS.map((definition) => ({
   id: definition.id,
   version: definition.version,
   kind: definition.kind,

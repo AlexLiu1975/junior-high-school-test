@@ -18,20 +18,35 @@ function hasExactKeys(value, expectedIds) {
     && hasExactMembers(Object.keys(value), expectedIds);
 }
 
+function hasOrderedMembers(value, expectedIds, orderingPolicy) {
+  if (orderingPolicy === "permutation") {
+    return hasExactMembers(value, expectedIds);
+  }
+  if (orderingPolicy === "canonical") {
+    return Array.isArray(value)
+      && value.length === expectedIds.length
+      && value.every((id, index) => id === expectedIds[index]);
+  }
+  return false;
+}
+
 function validateSubmittedOrder(definition, input) {
   const hasQuestionOrder = Object.hasOwn(input, "questionOrder");
   const hasOptionOrder = Object.hasOwn(input, "optionOrder");
-  if (hasQuestionOrder !== hasOptionOrder) invalidSubmission();
-  if (!hasQuestionOrder) return;
+  if (!hasQuestionOrder || !hasOptionOrder) invalidSubmission();
 
   const questionIds = definition.questions.map(({ id }) => id);
-  if (!hasExactMembers(input.questionOrder, questionIds)
+  if (!hasOrderedMembers(input.questionOrder, questionIds, definition.orderingPolicy)
     || !hasExactKeys(input.optionOrder, questionIds)) {
     invalidSubmission();
   }
   for (const question of definition.questions) {
     const optionIds = question.options.map(({ id }) => id);
-    if (!hasExactMembers(input.optionOrder[question.id], optionIds)) {
+    if (!hasOrderedMembers(
+      input.optionOrder[question.id],
+      optionIds,
+      definition.orderingPolicy,
+    )) {
       invalidSubmission();
     }
   }

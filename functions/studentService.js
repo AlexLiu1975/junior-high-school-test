@@ -81,9 +81,7 @@ export async function saveProgress({ repository, auth, input, now }) {
         transaction,
       );
       if (completed) {
-        if (completed.studentId !== student.studentId || completed.quizId !== definition.id) {
-          throw new Error("attempt-id-conflict");
-        }
+        requireStoredAttemptIdentity(completed, student, definition);
         return await repository.getProgress(student.studentId, definition.id, transaction)
           ?? emptyProgress(student.studentId, definition);
       }
@@ -102,15 +100,136 @@ export async function saveProgress({ repository, auth, input, now }) {
   });
 }
 
-function attemptResult(attemptId, attempt) {
-  return { attemptId, ...attempt };
-}
-
 function validateAttemptId(attemptId) {
   if (typeof attemptId !== "string" || !ATTEMPT_ID_PATTERN.test(attemptId)) {
     throw new Error("invalid-submission");
   }
   return attemptId;
+}
+
+function attemptIdConflict() {
+  throw new Error("attempt-id-conflict");
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isBoundedInteger(value, max) {
+  return Number.isInteger(value) && value >= 0 && value <= max;
+}
+
+function requireStoredAttemptIdentity(stored, student, definition) {
+  if (stored?.studentId !== student.studentId) attemptIdConflict();
+  if (
+    stored.quizId === definition.id
+    && stored.quizVersion === definition.version
+    && stored.quizKind === definition.kind
+  ) {
+    return "current";
+  }
+
+  const isDocumentedLegacyBiology = definition.kind === "multiple-choice"
+    && Array.isArray(definition.legacyAttemptQuizIds)
+    && definition.legacyAttemptQuizIds.includes(stored.quizId)
+    && stored.quizVersion === undefined
+    && stored.quizKind === undefined
+    && stored.subject === undefined
+    && stored.resultType === undefined;
+  if (isDocumentedLegacyBiology) return "legacy-score";
+  attemptIdConflict();
+}
+
+function projectStoredBase(attemptId, stored, definition) {
+  if (
+    !isNonEmptyString(stored.studentUid)
+    || !isNonEmptyString(stored.studentId)
+    || !isNonEmptyString(stored.studentCode)
+    || !isNonEmptyString(stored.studentName)
+    || stored.submittedAt === null
+    || stored.submittedAt === undefined
+  ) {
+    attemptIdConflict();
+  }
+  return {
+    attemptId,
+    quizId: definition.id,
+    quizVersion: definition.version,
+    quizKind: definition.kind,
+    quizTitle: definition.title,
+    subject: definition.subject,
+    studentUid: stored.studentUid,
+    studentId: stored.studentId,
+    studentCode: stored.studentCode,
+    studentName: stored.studentName,
+    submittedAt: stored.submittedAt,
+  };
+}
+
+function projectStoredScore(attemptId, stored, definition, mode) {
+  const placementFields = [
+    "completedCount", "totalItems", "errorCount", "durationSeconds", "completed",
+  ];
+  if (
+    definition.kind !== "multiple-choice"
+    || (mode === "current" && stored.resultType !== "score")
+    || (mode === "legacy-score" && stored.resultType !== undefined)
+    || placementFields.some((field) => Object.hasOwn(stored, field))
+    || !Number.isFinite(stored.score)
+    || stored.score < 0
+    || stored.score > 100
+    || !isBoundedInteger(stored.correctCount, definition.questions.length)
+    || !isBoundedInteger(stored.wrongCount, definition.questions.length)
+    || stored.correctCount + stored.wrongCount !== definition.questions.length
+  ) {
+    attemptIdConflict();
+  }
+  return {
+    ...projectStoredBase(attemptId, stored, definition),
+    resultType: "score",
+    score: stored.score,
+    correctCount: stored.correctCount,
+    wrongCount: stored.wrongCount,
+  };
+}
+
+function projectStoredPlacement(attemptId, stored, definition, mode) {
+  const scoreFields = ["score", "correctCount", "wrongCount", "wrongIds"];
+  const totalItems = definition.elements?.length;
+  if (
+    mode !== "current"
+    || definition.kind !== "placement"
+    || stored.resultType !== "placement"
+    || scoreFields.some((field) => Object.hasOwn(stored, field))
+    || !Number.isInteger(totalItems)
+    || stored.completedCount !== totalItems
+    || stored.totalItems !== totalItems
+    || !isBoundedInteger(stored.errorCount, 100000)
+    || !isBoundedInteger(stored.durationSeconds, 604800)
+    || stored.completed !== true
+  ) {
+    attemptIdConflict();
+  }
+  return {
+    ...projectStoredBase(attemptId, stored, definition),
+    resultType: "placement",
+    completedCount: stored.completedCount,
+    totalItems: stored.totalItems,
+    errorCount: stored.errorCount,
+    durationSeconds: stored.durationSeconds,
+    completed: true,
+  };
+}
+
+function projectStoredAttempt(attemptId, stored, student, definition) {
+  const mode = requireStoredAttemptIdentity(stored, student, definition);
+  if (definition.kind === "multiple-choice") {
+    return projectStoredScore(attemptId, stored, definition, mode);
+  }
+  if (definition.kind === "placement") {
+    return projectStoredPlacement(attemptId, stored, definition, mode);
+  }
+  attemptIdConflict();
 }
 
 function publicResult(result) {
@@ -138,18 +257,15 @@ function publicResult(result) {
 export async function submitAttempt({ repository, auth, input, maskedIp, now }) {
   requireAnonymousAuth(auth);
   const attemptId = validateAttemptId(input?.attemptId);
+  const definition = requireQuiz(input);
 
   return repository.runTransaction(async (transaction) => {
     const student = await repository.resolveStudent(input, transaction);
     const stored = await repository.getAttempt(attemptId, transaction);
     if (stored) {
-      if (stored.studentId !== student.studentId || stored.quizId !== input?.quizId) {
-        throw new Error("attempt-id-conflict");
-      }
-      return attemptResult(attemptId, stored);
+      return projectStoredAttempt(attemptId, stored, student, definition);
     }
 
-    const definition = requireQuiz(input);
     const result = validateQuizSubmission(definition, input);
     const normalized = normalizeQuizProgress(definition, {
       activeAttempt: null,
@@ -194,6 +310,6 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
       transaction,
     );
     await repository.setProgress(student.studentId, definition.id, progress, transaction);
-    return attemptResult(attemptId, attempt);
+    return { attemptId, ...attempt };
   });
 }

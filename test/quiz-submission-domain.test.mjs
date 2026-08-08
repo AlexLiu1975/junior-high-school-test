@@ -31,7 +31,10 @@ function validSubmission() {
 }
 
 test("exposes the current definition only for its stable ID and version", () => {
-  assert.equal(getQuizDefinition(QUIZ_ID, QUIZ_VERSION), QUIZ_DEFINITION);
+  const registered = getQuizDefinition(QUIZ_ID, QUIZ_VERSION);
+  assert.notEqual(registered, QUIZ_DEFINITION);
+  assert.equal(registered.id, QUIZ_DEFINITION.id);
+  assert.equal(registered.version, QUIZ_DEFINITION.version);
   assert.equal(getQuizDefinition("other-quiz", QUIZ_VERSION), null);
   assert.equal(getQuizDefinition(QUIZ_ID, QUIZ_VERSION + 1), null);
 });
@@ -74,6 +77,22 @@ test("null and array payloads use the stable validation error", () => {
 });
 
 test("submission preserves legal ordering while omitted answers count wrong", () => {
+  const permutedOrdering = validSubmission();
+  permutedOrdering.questionOrder.reverse();
+  for (const optionIds of Object.values(permutedOrdering.optionOrder)) optionIds.reverse();
+  assert.equal(
+    validateQuizSubmission(QUIZ_DEFINITION, permutedOrdering).score,
+    100,
+  );
+
+  const missingOrdering = validSubmission();
+  delete missingOrdering.questionOrder;
+  delete missingOrdering.optionOrder;
+  assert.throws(
+    () => validateQuizSubmission(QUIZ_DEFINITION, missingOrdering),
+    /invalid-submission/,
+  );
+
   const missingQuestion = validSubmission();
   missingQuestion.questionOrder.pop();
   assert.throws(

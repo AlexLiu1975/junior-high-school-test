@@ -96,6 +96,13 @@ const VALID_PERIODIC_INPUT = {
   errorCount: 9,
   durationSeconds: 755,
 };
+const ENGLISH_QUESTION_ORDER = ENGLISH_REVIEW_2.questions.map(({ id }) => id);
+const ENGLISH_OPTION_ORDER = Object.fromEntries(
+  ENGLISH_REVIEW_2.questions.map((question) => [
+    question.id,
+    question.options.map(({ id }) => id),
+  ]),
+);
 
 function studentKey({ studentCode, studentName }) {
   return `${studentCode}/${studentName}`;
@@ -370,7 +377,7 @@ test("progress services reject unknown and cross-kind top-level fields", async (
   }
 });
 
-test("the same attemptId is committed once and returns the stored result on retry", async () => {
+test("the same attemptId returns a fixed stored result before mutable body revalidation", async () => {
   const repository = createMemoryStudentRepository();
   const first = await submitAttempt({
     repository,
@@ -384,11 +391,11 @@ test("the same attemptId is committed once and returns the stored result on retr
     auth: ANON_AUTH,
     input: {
       ...PERFECT_INPUT,
-      quizVersion: 999,
       questionOrder: [],
       optionOrder: {},
-      answers: {},
+      answers: { unknown: "not-an-option" },
       reviewProgress: { notAQuestion: {} },
+      unexpectedMutableField: { secret: true },
     },
     maskedIp: "198.51.100.xxx",
     now: new Date("2026-08-02T05:05:06.000Z"),
@@ -400,6 +407,30 @@ test("the same attemptId is committed once and returns the stored result on retr
   assert.equal(repository.privateAttempts.size, 1);
   assert.equal(repository.privateAttempts.get(PERFECT_INPUT.attemptId).maskedIp, "203.0.113.xxx");
   assert.equal(repository.transactionRuns, 2);
+});
+
+test("a retry must identify a registered quiz version before stored-attempt matching", async () => {
+  const repository = createMemoryStudentRepository();
+  await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: PERFECT_INPUT,
+    maskedIp: "203.0.113.xxx",
+    now: NOW,
+  });
+
+  await assert.rejects(
+    submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input: { ...PERFECT_INPUT, quizVersion: 999 },
+      maskedIp: "198.51.100.xxx",
+      now: NOW,
+    }),
+    /invalid-quiz/,
+  );
+  assert.equal(repository.attempts.size, 1);
+  assert.equal(repository.privateAttempts.size, 1);
 });
 
 test("attempt completion recomputes score and atomically clears only active progress", async () => {
@@ -475,6 +506,8 @@ test("registered English attempts use trusted catalog metadata and fixed score f
     subject: "forged subject",
     kind: "placement",
     score: 100,
+    questionOrder: ENGLISH_QUESTION_ORDER,
+    optionOrder: ENGLISH_OPTION_ORDER,
     answers: { [firstQuestion.id]: correctAnswer },
     reviewProgress: {},
   };
@@ -554,13 +587,26 @@ test("placement attempts use a fixed placement result and never accept score fie
   assert.deepEqual([...repository.privateAttempts.keys()], [VALID_PERIODIC_INPUT.attemptId]);
 });
 
-test("a matching stored placement attempt returns before malformed body validation", async () => {
+test("a matching stored placement attempt returns a fixed projection without extra fields", async () => {
   const repository = createMemoryStudentRepository();
   const stored = {
     quizId: VALID_PERIODIC_INPUT.quizId,
+    quizVersion: VALID_PERIODIC_INPUT.quizVersion,
+    quizKind: "placement",
+    quizTitle: PERIODIC_TABLE_QUIZ.title,
+    subject: PERIODIC_TABLE_QUIZ.subject,
+    studentUid: ANON_AUTH.uid,
     studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
     resultType: "placement",
     completedCount: 118,
+    totalItems: 118,
+    errorCount: 9,
+    durationSeconds: 755,
+    completed: true,
+    extraSecret: "must-not-leak",
   };
   repository.attempts.set(VALID_PERIODIC_INPUT.attemptId, stored);
 
@@ -569,7 +615,6 @@ test("a matching stored placement attempt returns before malformed body validati
     auth: ANON_AUTH,
     input: {
       ...VALID_PERIODIC_INPUT,
-      quizVersion: 999,
       placements: {},
       score: 100,
     },
@@ -577,9 +622,177 @@ test("a matching stored placement attempt returns before malformed body validati
     now: NOW,
   }), {
     attemptId: VALID_PERIODIC_INPUT.attemptId,
-    ...stored,
+    quizId: VALID_PERIODIC_INPUT.quizId,
+    quizVersion: VALID_PERIODIC_INPUT.quizVersion,
+    quizKind: "placement",
+    quizTitle: PERIODIC_TABLE_QUIZ.title,
+    subject: PERIODIC_TABLE_QUIZ.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "placement",
+    completedCount: 118,
+    totalItems: 118,
+    errorCount: 9,
+    durationSeconds: 755,
+    completed: true,
   });
   assert.equal(repository.privateAttempts.size, 0);
+});
+
+test("stored attempt version and kind mismatches conflict", async () => {
+  for (const mismatchedIdentity of [
+    { quizVersion: 2, quizKind: "placement" },
+    { quizVersion: 1, quizKind: "multiple-choice" },
+  ]) {
+    const repository = createMemoryStudentRepository();
+    repository.attempts.set(VALID_PERIODIC_INPUT.attemptId, {
+      quizId: VALID_PERIODIC_INPUT.quizId,
+      quizTitle: PERIODIC_TABLE_QUIZ.title,
+      subject: PERIODIC_TABLE_QUIZ.subject,
+      studentUid: ANON_AUTH.uid,
+      studentId: STUDENT.studentId,
+      studentCode: STUDENT.studentCode,
+      studentName: STUDENT.studentName,
+      submittedAt: NOW,
+      resultType: "placement",
+      completedCount: 118,
+      totalItems: 118,
+      errorCount: 9,
+      durationSeconds: 755,
+      completed: true,
+      ...mismatchedIdentity,
+    });
+
+    await assert.rejects(
+      submitAttempt({
+        repository,
+        auth: ANON_AUTH,
+        input: VALID_PERIODIC_INPUT,
+        maskedIp: "198.51.100.xxx",
+        now: NOW,
+      }),
+      /attempt-id-conflict/,
+    );
+  }
+});
+
+test("corrupted stored result kinds conflict instead of leaking raw fields", async () => {
+  const base = {
+    quizId: VALID_PERIODIC_INPUT.quizId,
+    quizVersion: VALID_PERIODIC_INPUT.quizVersion,
+    quizKind: "placement",
+    quizTitle: PERIODIC_TABLE_QUIZ.title,
+    subject: PERIODIC_TABLE_QUIZ.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+  };
+
+  for (const corruptedResult of [
+    {
+      resultType: "score",
+      score: 100,
+      correctCount: 118,
+      wrongCount: 0,
+      extraSecret: "must-not-leak",
+    },
+    {
+      resultType: "placement",
+      completedCount: 118,
+    },
+  ]) {
+    const repository = createMemoryStudentRepository();
+    repository.attempts.set(VALID_PERIODIC_INPUT.attemptId, {
+      ...base,
+      ...corruptedResult,
+    });
+
+    await assert.rejects(
+      submitAttempt({
+        repository,
+        auth: ANON_AUTH,
+        input: VALID_PERIODIC_INPUT,
+        maskedIp: "198.51.100.xxx",
+        now: NOW,
+      }),
+      /attempt-id-conflict/,
+    );
+  }
+});
+
+test("only the documented legacy biology attempt shape receives a canonical retry projection", async () => {
+  const repository = createMemoryStudentRepository();
+  repository.attempts.set(PERFECT_INPUT.attemptId, {
+    quizId: "cell-microscope-quiz1",
+    quizTitle: "舊版生物測驗",
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    score: 100,
+    correctCount: 20,
+    wrongCount: 0,
+    extraSecret: "must-not-leak",
+  });
+
+  assert.deepEqual(await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: {
+      ...PERFECT_INPUT,
+      questionOrder: [],
+      optionOrder: {},
+      answers: { unknown: "not-an-option" },
+      reviewProgress: { unknown: {} },
+    },
+    maskedIp: "198.51.100.xxx",
+    now: NOW,
+  }), {
+    attemptId: PERFECT_INPUT.attemptId,
+    quizId: QUIZ_ID,
+    quizVersion: QUIZ_VERSION,
+    quizKind: "multiple-choice",
+    quizTitle: QUIZ_DEFINITION.title,
+    subject: QUIZ_DEFINITION.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "score",
+    score: 100,
+    correctCount: 20,
+    wrongCount: 0,
+  });
+
+  repository.attempts.set("attempt-english-legacy-like", {
+    quizId: ENGLISH_REVIEW_2.id,
+    studentId: STUDENT.studentId,
+    score: 100,
+    correctCount: 40,
+    wrongCount: 0,
+  });
+  await assert.rejects(
+    submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input: {
+        ...PERFECT_INPUT,
+        attemptId: "attempt-english-legacy-like",
+        quizId: ENGLISH_REVIEW_2.id,
+        quizVersion: ENGLISH_REVIEW_2.version,
+      },
+      maskedIp: "198.51.100.xxx",
+      now: NOW,
+    }),
+    /attempt-id-conflict/,
+  );
 });
 
 test("a delayed save cannot restore an attempt that has already completed", async () => {
@@ -616,6 +829,39 @@ test("a delayed save cannot restore an attempt that has already completed", asyn
   );
   assert.equal(saved.activeAttempt, null);
   assert.deepEqual(saved.reviewProgress, REVIEW_PROGRESS);
+});
+
+test("a delayed save conflicts with a completed attempt from another version or kind", async () => {
+  for (const mismatchedIdentity of [
+    { quizVersion: QUIZ_VERSION + 1 },
+    { quizKind: "placement" },
+  ]) {
+    const repository = createMemoryStudentRepository();
+    await submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input: PERFECT_INPUT,
+      maskedIp: "203.0.113.xxx",
+      now: NOW,
+    });
+    repository.attempts.set(PERFECT_INPUT.attemptId, {
+      ...repository.attempts.get(PERFECT_INPUT.attemptId),
+      ...mismatchedIdentity,
+    });
+
+    await assert.rejects(
+      saveProgress({
+        repository,
+        auth: ANON_AUTH,
+        input: {
+          ...VALID_PROGRESS_INPUT,
+          activeAttempt: { ...ACTIVE_ATTEMPT, attemptId: PERFECT_INPUT.attemptId },
+        },
+        now: new Date("2026-08-02T06:05:06.000Z"),
+      }),
+      /attempt-id-conflict/,
+    );
+  }
 });
 
 test("invalid submissions roll back and mismatched attempt reuse conflicts", async () => {

@@ -26,6 +26,16 @@ function hasExactMembers(value, expected) {
     && expected.every((item) => value.includes(item));
 }
 
+function hasOrderedMembers(value, expected, orderingPolicy) {
+  if (orderingPolicy === "permutation") return hasExactMembers(value, expected);
+  if (orderingPolicy === "canonical") {
+    return Array.isArray(value)
+      && value.length === expected.length
+      && value.every((item, index) => item === expected[index]);
+  }
+  return false;
+}
+
 function isAttemptId(value) {
   return typeof value === "string" && ATTEMPT_ID_PATTERN.test(value);
 }
@@ -74,7 +84,7 @@ function isCanonicalDate(value) {
     && date.getUTCDate() === day;
 }
 
-function normalizeMultipleChoiceAttempt(value, questionMap) {
+function normalizeMultipleChoiceAttempt(value, questionMap, orderingPolicy) {
   if (value === null) return null;
   const questionIds = [...questionMap.keys()];
   const expectedKeys = [
@@ -89,7 +99,7 @@ function normalizeMultipleChoiceAttempt(value, questionMap) {
   const { attemptId, questionOrder, optionOrder, answers, currentQuestionIndex } = value;
   if (
     !isAttemptId(attemptId)
-    || !hasExactMembers(questionOrder, questionIds)
+    || !hasOrderedMembers(questionOrder, questionIds, orderingPolicy)
     || !hasExactKeys(optionOrder, questionIds)
     || !hasOnlyKeys(answers, questionIds)
     || !Number.isInteger(currentQuestionIndex)
@@ -103,7 +113,7 @@ function normalizeMultipleChoiceAttempt(value, questionMap) {
   const normalizedAnswers = {};
   for (const questionId of questionIds) {
     const optionIds = questionMap.get(questionId).options.map(({ id }) => id);
-    if (!hasExactMembers(optionOrder[questionId], optionIds)) {
+    if (!hasOrderedMembers(optionOrder[questionId], optionIds, orderingPolicy)) {
       invalidProgressPayload();
     }
     normalizedOptionOrder[questionId] = [...optionOrder[questionId]];
@@ -157,7 +167,11 @@ function normalizeMultipleChoiceProgress(definition, input) {
   }
   const questionMap = normalizedQuestionMap(definition);
   return {
-    activeAttempt: normalizeMultipleChoiceAttempt(input.activeAttempt, questionMap),
+    activeAttempt: normalizeMultipleChoiceAttempt(
+      input.activeAttempt,
+      questionMap,
+      definition.orderingPolicy,
+    ),
     reviewProgress: normalizeReviewProgress(
       input.reviewProgress,
       questionMap,

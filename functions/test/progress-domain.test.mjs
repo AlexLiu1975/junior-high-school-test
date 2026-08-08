@@ -7,6 +7,7 @@ import { requireStudentIdentity } from "../studentIdentity.js";
 
 const QUIZ_DEFINITION = {
   kind: "multiple-choice",
+  orderingPolicy: "permutation",
   supportsReviewProgress: true,
   questions: [
     { id: "q1", options: [{ id: "q1-o1" }, { id: "q1-o2" }] },
@@ -218,6 +219,49 @@ test("only biology accepts review scheduling fields", () => {
     activeAttempt: null,
     reviewProgress: {},
   });
+});
+
+test("English progress requires canonical question and option order", () => {
+  const questionOrder = ENGLISH_REVIEW_2.questions.map(({ id }) => id);
+  const optionOrder = Object.fromEntries(ENGLISH_REVIEW_2.questions.map((question) => [
+    question.id,
+    question.options.map(({ id }) => id),
+  ]));
+  const progress = {
+    activeAttempt: {
+      attemptId: "english-progress-1",
+      questionOrder,
+      optionOrder,
+      answers: {},
+      currentQuestionIndex: 0,
+    },
+    reviewProgress: {},
+  };
+
+  assert.deepEqual(normalizeQuizProgress(ENGLISH_REVIEW_2, progress), progress);
+  assert.throws(
+    () => normalizeQuizProgress(ENGLISH_REVIEW_2, {
+      ...progress,
+      activeAttempt: {
+        ...progress.activeAttempt,
+        questionOrder: [...questionOrder].reverse(),
+      },
+    }),
+    /invalid-progress-payload/,
+  );
+  assert.throws(
+    () => normalizeQuizProgress(ENGLISH_REVIEW_2, {
+      ...progress,
+      activeAttempt: {
+        ...progress.activeAttempt,
+        optionOrder: {
+          ...optionOrder,
+          [questionOrder[0]]: [...optionOrder[questionOrder[0]]].reverse(),
+        },
+      },
+    }),
+    /invalid-progress-payload/,
+  );
 });
 
 test("resolves a trimmed active student entry without trusting a caller student ID", async () => {

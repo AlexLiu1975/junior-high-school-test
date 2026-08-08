@@ -30,10 +30,12 @@ export const QUIZ_DEFINITION = {
   id: QUIZ_ID,
   version: QUIZ_VERSION,
   kind: "multiple-choice",
+  orderingPolicy: "permutation",
   subject: "Biology",
   title: QUIZ_TITLE,
   catalogDescription: QUIZ_CATALOG_DESCRIPTION,
   supportsReviewProgress: true,
+  legacyAttemptQuizIds: ["cell-microscope-quiz1"],
   questions: RAW_QUESTIONS.map((question) => ({
     ...question,
     options: question.options.map((text, index) => ({
