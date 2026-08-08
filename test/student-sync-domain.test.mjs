@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildTrustedProgressRequest,
+  buildTrustedSubmissionRequest,
   classifyStudentSyncError,
   createLocalProgressStore,
   createStudentSyncClient,
   pendingAttemptStorageKey,
   progressStorageKey,
+  recoverStudentSyncOnline,
   resolveProgressConflict,
   toLocalProgressSnapshot,
 } from "../src/studentSyncDomain.js";
@@ -24,6 +27,16 @@ function createMemoryStorage() {
       values.delete(key);
     },
   };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 const PROGRESS = {
@@ -62,7 +75,80 @@ test("local progress store never persists raw student names or codes", () => {
     () => store.save("progress-key", { nested: { studentCode: "secret" } }),
     /raw-student-identity-not-allowed/,
   );
+  for (const identityLikeValue of [
+    { StudentName: "王小明" },
+    { student_name: "王小明" },
+    { "student-code": "private-code" },
+    { nested: [{ "Student Code": "private-code" }] },
+  ]) {
+    assert.throws(
+      () => store.save("progress-key", identityLikeValue),
+      /raw-student-identity-not-allowed/,
+    );
+  }
   assert.equal(storage.getItem("progress-key"), null);
+});
+
+test("callable Admin Timestamp transport converts to milliseconds", () => {
+  const snapshot = toLocalProgressSnapshot({
+    revision: 4,
+    activeAttempt: null,
+    reviewProgress: {},
+    updatedAt: { _seconds: 1_700_000_000, _nanoseconds: 987_654_321 },
+  }, { pendingSync: false });
+
+  assert.equal(snapshot.updatedAtMs, 1_700_000_000_987);
+  assert.equal(snapshot.revision, 4);
+});
+
+test("trusted credentials override and remove identity-like renderer fields", () => {
+  const request = buildTrustedSubmissionRequest({
+    submission: {
+      attemptId: "run-1",
+      studentName: "attacker",
+      StudentName: "attacker-2",
+      student_code: "attacker-code",
+      nested: { "student-code": "nested-attacker" },
+    },
+    credentials: { studentName: "王小明", studentCode: "20260802-001" },
+    identity: { studentId: "student-1" },
+    quiz: {
+      id: "biology-cell-microscope-1",
+      version: 1,
+      kind: "multiple-choice",
+      subject: "Biology",
+      title: "Biology Quiz",
+    },
+  });
+
+  assert.equal(request.studentName, "王小明");
+  assert.equal(request.studentCode, "20260802-001");
+  assert.equal(request.studentId, "student-1");
+  assert.equal(Object.hasOwn(request, "StudentName"), false);
+  assert.equal(Object.hasOwn(request, "student_code"), false);
+  assert.deepEqual(request.nested, {});
+});
+
+test("progress save requests whitelist sync fields and carry the cloud base revision", () => {
+  assert.deepEqual(buildTrustedProgressRequest({
+    progress: {
+      revision: 12,
+      activeAttempt: PROGRESS.activeAttempt,
+      reviewProgress: {},
+      StudentName: "attacker",
+      extra: "must-not-send",
+    },
+    credentials: { studentName: "王小明", studentCode: "20260802-001" },
+    quiz: { id: "biology-cell-microscope-1", version: 1 },
+  }), {
+    studentCode: "20260802-001",
+    studentName: "王小明",
+    quizId: "biology-cell-microscope-1",
+    quizVersion: 1,
+    baseRevision: 12,
+    activeAttempt: PROGRESS.activeAttempt,
+    reviewProgress: {},
+  });
 });
 
 test("newer unsynced local work requires an explicit choice", () => {
@@ -148,6 +234,7 @@ test("accepting cloud progress replaces a stale local conflict snapshot", () => 
   assert.deepEqual(client.load("student-1", "periodic-table"), {
     updatedAtMs: 3_000,
     pendingSync: false,
+    revision: 0,
     activeAttempt: null,
     reviewProgress: {},
   });
@@ -196,6 +283,43 @@ test("queued saves persist locally first and coalesce to the latest cloud reques
   assert.equal(JSON.parse(storage.getItem(
     "jhst:progress:student-1:english-review-2",
   )).pendingSync, false);
+  client.dispose();
+});
+
+test("debounced saves report pending, acknowledged, and classified failure states", async () => {
+  const storage = createMemoryStorage();
+  const states = [];
+  let fail = false;
+  const client = createStudentSyncClient({
+    storage,
+    debounceMs: 60_000,
+    onSaveState: (state) => states.push(state.status),
+    callSave: async () => {
+      if (fail) {
+        throw Object.assign(new Error("offline"), { code: "functions/unavailable" });
+      }
+      return { ...PROGRESS, revision: 1 };
+    },
+    callSubmit: async () => ({}),
+  });
+
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: { ...PROGRESS, revision: 0 },
+    request: { ...PROGRESS, baseRevision: 0 },
+  });
+  await client.flush();
+  fail = true;
+  client.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: { ...PROGRESS, revision: 1 },
+    request: { ...PROGRESS, baseRevision: 1 },
+  });
+  await assert.rejects(client.flush(), /offline/);
+
+  assert.deepEqual(states, ["pending", "synced", "pending", "error"]);
   client.dispose();
 });
 
@@ -296,6 +420,89 @@ test("pending submission is removed only after server acknowledgement", async ()
   client.dispose();
 });
 
+test("an older submission acknowledgement cannot delete a newer failed pending attempt", async () => {
+  const storage = createMemoryStorage();
+  const first = deferred();
+  const second = deferred();
+  let call = 0;
+  const client = createStudentSyncClient({
+    storage,
+    createToken: () => `token-${call + 1}`,
+    callSave: async () => ({}),
+    callSubmit: () => {
+      call += 1;
+      return call === 1 ? first.promise : second.promise;
+    },
+  });
+
+  const firstSubmit = client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-a", StudentName: "must-strip" },
+    request: { attemptId: "run-a" },
+  });
+  const secondSubmit = client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-b", nested: { student_code: "must-strip" } },
+    request: { attemptId: "run-b" },
+  });
+
+  first.resolve({ attemptId: "run-a" });
+  await firstSubmit;
+  second.reject(new Error("offline-b"));
+  await assert.rejects(secondSubmit, /offline-b/);
+
+  const pending = client.loadPendingAttempt(
+    "student-1",
+    "biology-cell-microscope-1",
+  );
+  assert.equal(pending.submission.attemptId, "run-b");
+  assert.equal(JSON.stringify(pending).includes("must-strip"), false);
+  client.dispose();
+});
+
+test("online recovery never reports synced while an attempt is still pending", async () => {
+  const storage = createMemoryStorage();
+  let submitCalls = 0;
+  const client = createStudentSyncClient({
+    storage,
+    callSave: async () => ({}),
+    callSubmit: async () => {
+      submitCalls += 1;
+      if (submitCalls === 1) throw new Error("offline");
+      return { attemptId: "run-1" };
+    },
+  });
+  await assert.rejects(client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-1" },
+    request: { attemptId: "run-1" },
+  }), /offline/);
+
+  assert.deepEqual(await recoverStudentSyncOnline({
+    client,
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    allowSubmitRetry: false,
+    buildSubmissionRequest: () => {
+      throw new Error("renderer-absent-must-not-retry");
+    },
+  }), { status: "pending-attempt" });
+  assert.equal(submitCalls, 1);
+
+  assert.deepEqual(await recoverStudentSyncOnline({
+    client,
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    allowSubmitRetry: true,
+    buildSubmissionRequest: (submission) => submission,
+  }), { status: "synced" });
+  assert.equal(submitCalls, 2);
+  client.dispose();
+});
+
 test("dispose cancels a queued timer without calling the cloud", async () => {
   const storage = createMemoryStorage();
   let calls = 0;
@@ -318,6 +525,36 @@ test("dispose cancels a queued timer without calling the cloud", async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(calls, 0);
+});
+
+test("disposed clients reject new submissions and keep in-flight pending data untouched", async () => {
+  const storage = createMemoryStorage();
+  const inFlight = deferred();
+  const client = createStudentSyncClient({
+    storage,
+    callSave: async () => ({}),
+    callSubmit: () => inFlight.promise,
+  });
+  const submitting = client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-1" },
+    request: { attemptId: "run-1" },
+  });
+  client.dispose();
+  inFlight.resolve({ attemptId: "run-1" });
+  await submitting;
+
+  assert.notEqual(client.loadPendingAttempt(
+    "student-1",
+    "biology-cell-microscope-1",
+  ), null);
+  await assert.rejects(client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-2" },
+    request: { attemptId: "run-2" },
+  }), /student-sync-client-disposed/);
 });
 
 test("student sync errors preserve distinct actionable states", () => {
@@ -354,5 +591,11 @@ test("student sync errors preserve distinct actionable states", () => {
       code: "functions/invalid-argument",
     })),
     "version-mismatch",
+  );
+  assert.equal(
+    classifyStudentSyncError(Object.assign(new Error("progress-conflict"), {
+      code: "functions/aborted",
+    })),
+    "progress-conflict",
   );
 });

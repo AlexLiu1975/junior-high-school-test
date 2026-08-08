@@ -37,6 +37,7 @@ const CALLABLE_ERROR_CODES = new Map([
   ["invalid-progress-payload", "invalid-argument"],
   ["invalid-submission", "invalid-argument"],
   ["attempt-id-conflict", "already-exists"],
+  ["progress-conflict", "aborted"],
 ]);
 
 export function toCallableError(error) {

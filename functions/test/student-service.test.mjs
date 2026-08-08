@@ -67,6 +67,7 @@ const VALID_PROGRESS_INPUT = {
   studentName: STUDENT.studentName,
   quizId: QUIZ_ID,
   quizVersion: QUIZ_VERSION,
+  baseRevision: 0,
   activeAttempt: ACTIVE_ATTEMPT,
   reviewProgress: REVIEW_PROGRESS,
 };
@@ -229,6 +230,7 @@ test("callable errors preserve stable client-actionable categories", () => {
     ["invalid-progress-payload", "invalid-argument"],
     ["invalid-submission", "invalid-argument"],
     ["attempt-id-conflict", "already-exists"],
+    ["progress-conflict", "aborted"],
   ];
 
   for (const [message, code] of cases) {
@@ -284,6 +286,83 @@ test("loading progress resolves approved identity and never trusts caller studen
 
   assert.equal(loaded.studentId, STUDENT.studentId);
   assert.deepEqual(loaded.activeAttempt, ACTIVE_ATTEMPT);
+  assert.equal(loaded.revision, 0);
+});
+
+test("empty progress starts at revision zero", async () => {
+  const loaded = await loadProgress({
+    repository: createMemoryStudentRepository(),
+    auth: ANON_AUTH,
+    input: {
+      studentCode: STUDENT.studentCode,
+      studentName: STUDENT.studentName,
+      quizId: QUIZ_ID,
+      quizVersion: QUIZ_VERSION,
+    },
+  });
+
+  assert.equal(loaded.revision, 0);
+});
+
+test("stale base revisions cannot overwrite newer cloud progress", async () => {
+  const repository = createMemoryStudentRepository();
+  const first = await saveProgress({
+    repository,
+    auth: ANON_AUTH,
+    input: { ...VALID_PROGRESS_INPUT, baseRevision: 0 },
+    now: NOW,
+  });
+  assert.equal(first.revision, 1);
+
+  await assert.rejects(
+    saveProgress({
+      repository,
+      auth: ANON_AUTH,
+      input: {
+        ...VALID_PROGRESS_INPUT,
+        baseRevision: 0,
+        activeAttempt: {
+          ...ACTIVE_ATTEMPT,
+          answers: { q2: PERFECT_ANSWERS.q2 },
+        },
+      },
+      now: new Date("2026-08-02T05:05:06.000Z"),
+    }),
+    /progress-conflict/,
+  );
+
+  assert.equal(repository.progress.get(`${STUDENT.studentId}/${QUIZ_ID}`).revision, 1);
+  assert.deepEqual(
+    repository.progress.get(`${STUDENT.studentId}/${QUIZ_ID}`).activeAttempt.answers,
+    ACTIVE_ATTEMPT.answers,
+  );
+});
+
+test("submission clears active progress and increments its current revision", async () => {
+  const repository = createMemoryStudentRepository();
+  repository.progress.set(`${STUDENT.studentId}/${QUIZ_ID}`, {
+    studentId: STUDENT.studentId,
+    quizId: QUIZ_ID,
+    quizVersion: QUIZ_VERSION,
+    kind: "multiple-choice",
+    revision: 7,
+    activeAttempt: ACTIVE_ATTEMPT,
+    reviewProgress: {},
+    updatedAt: NOW,
+    updatedByUid: ANON_AUTH.uid,
+  });
+
+  await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: PERFECT_INPUT,
+    maskedIp: "203.0.113.xxx",
+    now: new Date("2026-08-02T05:05:06.000Z"),
+  });
+
+  const progress = repository.progress.get(`${STUDENT.studentId}/${QUIZ_ID}`);
+  assert.equal(progress.revision, 8);
+  assert.equal(progress.activeAttempt, null);
 });
 
 test("missing and inactive student credentials are rejected", async () => {
@@ -475,6 +554,7 @@ test("attempt completion recomputes score and atomically clears only active prog
     quizId: QUIZ_ID,
     quizVersion: QUIZ_VERSION,
     kind: "multiple-choice",
+    revision: 1,
     activeAttempt: null,
     reviewProgress: {
       q2: {
@@ -795,7 +875,7 @@ test("only the documented legacy biology attempt shape receives a canonical retr
   );
 });
 
-test("a delayed save cannot restore an attempt that has already completed", async () => {
+test("a stale delayed save conflicts and cannot restore a completed attempt", async () => {
   const repository = createMemoryStudentRepository();
   await submitAttempt({
     repository,
@@ -808,27 +888,29 @@ test("a delayed save cannot restore an attempt that has already completed", asyn
     repository.progress.get(`${STUDENT.studentId}/${QUIZ_ID}`),
   );
 
-  const saved = await saveProgress({
-    repository,
-    auth: ANON_AUTH,
-    input: {
-      ...VALID_PROGRESS_INPUT,
-      activeAttempt: {
-        ...ACTIVE_ATTEMPT,
-        attemptId: PERFECT_INPUT.attemptId,
+  await assert.rejects(
+    saveProgress({
+      repository,
+      auth: ANON_AUTH,
+      input: {
+        ...VALID_PROGRESS_INPUT,
+        activeAttempt: {
+          ...ACTIVE_ATTEMPT,
+          attemptId: PERFECT_INPUT.attemptId,
+        },
+        reviewProgress: {},
       },
-      reviewProgress: {},
-    },
-    now: new Date("2026-08-02T06:05:06.000Z"),
-  });
+      now: new Date("2026-08-02T06:05:06.000Z"),
+    }),
+    /progress-conflict/,
+  );
 
-  assert.deepEqual(saved, completedProgress);
   assert.deepEqual(
     repository.progress.get(`${STUDENT.studentId}/${QUIZ_ID}`),
     completedProgress,
   );
-  assert.equal(saved.activeAttempt, null);
-  assert.deepEqual(saved.reviewProgress, REVIEW_PROGRESS);
+  assert.equal(completedProgress.activeAttempt, null);
+  assert.deepEqual(completedProgress.reviewProgress, REVIEW_PROGRESS);
 });
 
 test("a delayed save conflicts with a completed attempt from another version or kind", async () => {
@@ -855,6 +937,7 @@ test("a delayed save conflicts with a completed attempt from another version or 
         auth: ANON_AUTH,
         input: {
           ...VALID_PROGRESS_INPUT,
+          baseRevision: 1,
           activeAttempt: { ...ACTIVE_ATTEMPT, attemptId: PERFECT_INPUT.attemptId },
         },
         now: new Date("2026-08-02T06:05:06.000Z"),

@@ -11,6 +11,7 @@ const PROGRESS_INPUT_FIELDS = new Set([
   "studentId",
   "quizId",
   "quizVersion",
+  "baseRevision",
   "activeAttempt",
   "reviewProgress",
 ]);
@@ -41,10 +42,26 @@ function progressPayload(input, definition) {
   ) {
     throw new Error("invalid-progress-payload");
   }
-  return normalizeQuizProgress(definition, {
-    activeAttempt: input?.activeAttempt,
-    reviewProgress: input?.reviewProgress,
-  });
+  if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
+    throw new Error("invalid-progress-payload");
+  }
+  return {
+    baseRevision: input.baseRevision,
+    ...normalizeQuizProgress(definition, {
+      activeAttempt: input?.activeAttempt,
+      reviewProgress: input?.reviewProgress,
+    }),
+  };
+}
+
+function progressRevision(progress) {
+  return Number.isSafeInteger(progress?.revision) && progress.revision >= 0
+    ? progress.revision
+    : 0;
+}
+
+function withProgressRevision(progress) {
+  return { ...progress, revision: progressRevision(progress) };
 }
 
 function emptyProgress(studentId, definition) {
@@ -53,6 +70,7 @@ function emptyProgress(studentId, definition) {
     quizId: definition.id,
     quizVersion: definition.version,
     kind: definition.kind,
+    revision: 0,
     activeAttempt: null,
     reviewProgress: {},
     updatedAt: null,
@@ -65,7 +83,9 @@ export async function loadProgress({ repository, auth, input }) {
   const definition = requireQuiz(input);
   const student = await repository.resolveStudent(input);
   const stored = await repository.getProgress(student.studentId, definition.id);
-  return stored ?? emptyProgress(student.studentId, definition);
+  return stored
+    ? withProgressRevision(stored)
+    : emptyProgress(student.studentId, definition);
 }
 
 export async function saveProgress({ repository, auth, input, now }) {
@@ -75,6 +95,15 @@ export async function saveProgress({ repository, auth, input, now }) {
 
   return repository.runTransaction(async (transaction) => {
     const student = await repository.resolveStudent(input, transaction);
+    const currentProgress = await repository.getProgress(
+      student.studentId,
+      definition.id,
+      transaction,
+    );
+    const currentRevision = progressRevision(currentProgress);
+    if (normalized.baseRevision !== currentRevision) {
+      throw new Error("progress-conflict");
+    }
     if (normalized.activeAttempt) {
       const completed = await repository.getAttempt(
         normalized.activeAttempt.attemptId,
@@ -82,8 +111,9 @@ export async function saveProgress({ repository, auth, input, now }) {
       );
       if (completed) {
         requireStoredAttemptIdentity(completed, student, definition);
-        return await repository.getProgress(student.studentId, definition.id, transaction)
-          ?? emptyProgress(student.studentId, definition);
+        return currentProgress
+          ? withProgressRevision(currentProgress)
+          : emptyProgress(student.studentId, definition);
       }
     }
     const progress = {
@@ -91,7 +121,9 @@ export async function saveProgress({ repository, auth, input, now }) {
       quizId: definition.id,
       quizVersion: definition.version,
       kind: definition.kind,
-      ...normalized,
+      revision: currentRevision + 1,
+      activeAttempt: normalized.activeAttempt,
+      reviewProgress: normalized.reviewProgress,
       updatedAt: now,
       updatedByUid: auth.uid,
     };
@@ -294,6 +326,7 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
       quizId: definition.id,
       quizVersion: definition.version,
       kind: definition.kind,
+      revision: progressRevision(currentProgress) + 1,
       activeAttempt: null,
       reviewProgress: {
         ...(currentProgress?.reviewProgress ?? {}),

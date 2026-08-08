@@ -1,5 +1,9 @@
-const RAW_IDENTITY_FIELDS = new Set(["studentName", "studentCode"]);
 const STORAGE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+
+function isRawIdentityField(key) {
+  const normalized = String(key).toLowerCase().replace(/[_\-\s]/g, "");
+  return normalized === "studentname" || normalized === "studentcode";
+}
 
 function requireStorageSegment(value) {
   if (typeof value !== "string" || !STORAGE_SEGMENT_PATTERN.test(value)) {
@@ -24,7 +28,7 @@ function containsRawIdentity(value, seen = new Set()) {
     return value.some((child) => containsRawIdentity(child, seen));
   }
   return Object.entries(value).some(([key, child]) => (
-    RAW_IDENTITY_FIELDS.has(key) || containsRawIdentity(child, seen)
+    isRawIdentityField(key) || containsRawIdentity(child, seen)
   ));
 }
 
@@ -33,7 +37,7 @@ function withoutRawIdentity(value) {
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => !RAW_IDENTITY_FIELDS.has(key))
+        .filter(([key]) => !isRawIdentityField(key))
         .map(([key, child]) => [key, withoutRawIdentity(child)]),
     );
   }
@@ -84,9 +88,10 @@ function timestampToMs(value) {
   if (typeof value?.updatedAt?.toMillis === "function") {
     return value.updatedAt.toMillis();
   }
-  if (Number.isFinite(value?.updatedAt?.seconds)) {
-    return (value.updatedAt.seconds * 1_000)
-      + Math.floor((value.updatedAt.nanoseconds ?? 0) / 1_000_000);
+  const seconds = value?.updatedAt?.seconds ?? value?.updatedAt?._seconds;
+  const nanoseconds = value?.updatedAt?.nanoseconds ?? value?.updatedAt?._nanoseconds ?? 0;
+  if (Number.isFinite(seconds) && Number.isFinite(nanoseconds)) {
+    return (seconds * 1_000) + Math.floor(nanoseconds / 1_000_000);
   }
   return 0;
 }
@@ -96,6 +101,9 @@ export function toLocalProgressSnapshot(progress, { pendingSync, now = Date.now 
   return {
     updatedAtMs,
     pendingSync: pendingSync === true,
+    revision: Number.isSafeInteger(progress?.revision) && progress.revision >= 0
+      ? progress.revision
+      : 0,
     quizVersion: progress?.quizVersion,
     kind: progress?.kind,
     activeAttempt: cloneSerializable(progress?.activeAttempt ?? null),
@@ -125,6 +133,7 @@ export function classifyStudentSyncError(error) {
   const code = String(error?.code ?? "").toLowerCase();
   const text = errorText(error);
   if (text.includes("firebase configuration is missing")) return "missing-config";
+  if (text.includes("progress-conflict")) return "progress-conflict";
   if (text.includes("invalid-quiz") || text.includes("version")) return "version-mismatch";
   if (text.includes("student-inactive")) return "inactive-student";
   if (
@@ -141,6 +150,35 @@ export function classifyStudentSyncError(error) {
   return "unknown";
 }
 
+export function buildTrustedSubmissionRequest({ submission, credentials, identity, quiz }) {
+  const safeSubmission = withoutRawIdentity(cloneSerializable(submission));
+  return {
+    ...safeSubmission,
+    studentId: identity.studentId,
+    quizId: quiz.id,
+    quizVersion: quiz.version,
+    title: quiz.title,
+    subject: quiz.subject,
+    kind: quiz.kind,
+    studentCode: credentials.studentCode,
+    studentName: credentials.studentName,
+  };
+}
+
+export function buildTrustedProgressRequest({ progress, credentials, quiz }) {
+  return {
+    studentCode: credentials.studentCode,
+    studentName: credentials.studentName,
+    quizId: quiz.id,
+    quizVersion: quiz.version,
+    baseRevision: Number.isSafeInteger(progress?.revision) && progress.revision >= 0
+      ? progress.revision
+      : 0,
+    activeAttempt: withoutRawIdentity(cloneSerializable(progress?.activeAttempt ?? null)),
+    reviewProgress: withoutRawIdentity(cloneSerializable(progress?.reviewProgress ?? {})),
+  };
+}
+
 export function createStudentSyncClient({
   storage,
   callSave,
@@ -149,6 +187,8 @@ export function createStudentSyncClient({
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
+  createToken = null,
+  onSaveState = null,
 }) {
   if (typeof callSave !== "function" || typeof callSubmit !== "function") {
     throw new Error("student-callables-required");
@@ -160,6 +200,13 @@ export function createStudentSyncClient({
   let disposed = false;
   let generation = 0;
   let retryNeeded = false;
+  let submissionSequence = 0;
+
+  function emitSaveState(status, details = {}) {
+    if (!disposed && typeof onSaveState === "function") {
+      onSaveState({ status, ...details });
+    }
+  }
 
   function clearTimer() {
     if (timer !== null) cancel(timer);
@@ -184,6 +231,17 @@ export function createStudentSyncClient({
     activeSave = (async () => {
       try {
         const result = await callSave(job.request);
+        if (!disposed && queuedSave && Number.isSafeInteger(result?.revision)) {
+          queuedSave = {
+            ...queuedSave,
+            progress: { ...queuedSave.progress, revision: result.revision },
+            request: { ...queuedSave.request, baseRevision: result.revision },
+          };
+          store.save(
+            queuedSave.key,
+            toLocalProgressSnapshot(queuedSave.progress, { pendingSync: true, now }),
+          );
+        }
         if (!disposed && generation === job.generation) {
           const acknowledged = {
             ...job.progress,
@@ -194,12 +252,19 @@ export function createStudentSyncClient({
             job.key,
             toLocalProgressSnapshot(acknowledged, { pendingSync: false, now }),
           );
+          emitSaveState("synced", { result });
         }
         return result;
       } catch (error) {
         if (!disposed && !queuedSave) {
           queuedSave = job;
           retryNeeded = true;
+        }
+        if (!disposed && generation === job.generation) {
+          emitSaveState("error", {
+            error,
+            errorState: classifyStudentSyncError(error),
+          });
         }
         throw error;
       }
@@ -238,6 +303,7 @@ export function createStudentSyncClient({
       retryNeeded = false;
       store.save(key, toLocalProgressSnapshot(progress, { pendingSync: true, now }));
       queuedSave = { key, progress, request, generation };
+      emitSaveState("pending");
       scheduleSave();
     },
 
@@ -253,11 +319,37 @@ export function createStudentSyncClient({
     },
 
     async submit({ studentId, quizId, submission, request }) {
+      if (disposed) throw new Error("student-sync-client-disposed");
       const key = pendingAttemptStorageKey(studentId, quizId);
       const safeSubmission = withoutRawIdentity(cloneSerializable(submission));
-      store.save(key, safeSubmission);
+      submissionSequence += 1;
+      const pendingToken = typeof createToken === "function"
+        ? createToken()
+        : globalThis.crypto?.randomUUID?.() ?? `${now()}-${submissionSequence}`;
+      const pending = { pendingToken, submission: safeSubmission };
+      store.save(key, pending);
       const result = await callSubmit(request);
-      store.remove(key);
+      if (!disposed) {
+        const current = store.load(key);
+        if (
+          current?.pendingToken === pendingToken
+          && current?.submission?.attemptId === safeSubmission?.attemptId
+        ) {
+          store.remove(key);
+        }
+      }
+      return result;
+    },
+
+    async retryPendingAttempt({ studentId, quizId, buildRequest }) {
+      if (disposed) throw new Error("student-sync-client-disposed");
+      const key = pendingAttemptStorageKey(studentId, quizId);
+      const pending = store.load(key);
+      if (!pending) return null;
+      const result = await callSubmit(buildRequest(pending.submission));
+      if (!disposed && store.load(key)?.pendingToken === pending.pendingToken) {
+        store.remove(key);
+      }
       return result;
     },
 
@@ -268,4 +360,25 @@ export function createStudentSyncClient({
       queuedSave = null;
     },
   };
+}
+
+export async function recoverStudentSyncOnline({
+  client,
+  studentId,
+  quizId,
+  allowSubmitRetry,
+  buildSubmissionRequest,
+}) {
+  await client.flush();
+  const pending = client.loadPendingAttempt(studentId, quizId);
+  if (!pending) return { status: "synced" };
+  if (!allowSubmitRetry) return { status: "pending-attempt" };
+  await client.retryPendingAttempt({
+    studentId,
+    quizId,
+    buildRequest: buildSubmissionRequest,
+  });
+  return client.loadPendingAttempt(studentId, quizId)
+    ? { status: "pending-attempt" }
+    : { status: "synced" };
 }

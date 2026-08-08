@@ -4,6 +4,7 @@ const STATUS_MESSAGES = {
   "local-pending": "進度已先保存在這個瀏覽器，正在等待雲端同步。",
   "offline-pending": "網路連線中斷；進度已保存在這個瀏覽器，連線後會再同步。",
   conflict: "這個瀏覽器與雲端都有進度，請選擇要繼續哪一份。",
+  "progress-conflict": "雲端進度已更新，請重新載入並選擇要繼續的版本。",
   submitting: "正在保存完成紀錄…",
   "submit-failed": "完成紀錄尚未保存，待送資料仍保留在這個瀏覽器。",
   "missing-config": "Firebase 設定缺少，暫時只能保存在這個瀏覽器。",

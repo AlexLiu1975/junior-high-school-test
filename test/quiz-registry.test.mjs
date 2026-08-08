@@ -5,6 +5,7 @@ import {
   getQuizDefinition,
   validateQuizSubmission,
 } from "../functions/shared/quizRegistry.js";
+import { QUIZ_CATALOG as CLIENT_QUIZ_CATALOG } from "../src/quizCatalogData.js";
 
 function canonicalMultipleChoiceOrder(definition) {
   return {
@@ -17,6 +18,7 @@ function canonicalMultipleChoiceOrder(definition) {
 }
 
 test("catalog exposes three stable quizzes in display order", () => {
+  assert.deepEqual(CLIENT_QUIZ_CATALOG, QUIZ_CATALOG);
   assert.deepEqual(QUIZ_CATALOG.map((quiz) => quiz.id), [
     "biology-cell-microscope-1",
     "english-review-2",

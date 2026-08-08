@@ -1,4 +1,4 @@
-import { QUIZ_CATALOG } from "../functions/shared/quizRegistry.js";
+import { QUIZ_CATALOG } from "./quizCatalogData.js";
 
 const QUIZZES_BY_ID = new Map(QUIZ_CATALOG.map((quiz) => [quiz.id, quiz]));
 

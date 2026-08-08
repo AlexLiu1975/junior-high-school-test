@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   catalogQuizUrl,
+  QUIZ_CATALOG,
   resolveQuizRoute,
 } from "../src/quizCatalogDomain.js";
+
+test("client catalog contains metadata only and has no server definition dependency", async () => {
+  const [domainSource, dataSource] = await Promise.all([
+    readFile(new URL("../src/quizCatalogDomain.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/quizCatalogData.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(domainSource, /functions\/|quizRegistry|Definition/);
+  assert.doesNotMatch(dataSource, /functions\/|quizRegistry|Definition|questions|answers|explanation/);
+  assert.deepEqual(QUIZ_CATALOG.map((quiz) => Object.keys(quiz).sort()), [
+    ["catalogDescription", "id", "kind", "subject", "title", "version"],
+    ["catalogDescription", "id", "kind", "subject", "title", "version"],
+    ["catalogDescription", "id", "kind", "subject", "title", "version"],
+  ]);
+});
 
 test("catalog routes only the three registered IDs", () => {
   assert.equal(resolveQuizRoute("").mode, "catalog");

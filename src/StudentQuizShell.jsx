@@ -9,19 +9,15 @@ import HomeLink from "./HomeLink.jsx";
 import ProgressConflictDialog from "./ProgressConflictDialog.jsx";
 import { validateStudentIdentity } from "./quizDomain.js";
 import {
+  buildTrustedProgressRequest,
+  buildTrustedSubmissionRequest,
   classifyStudentSyncError,
   createStudentSyncClient,
+  recoverStudentSyncOnline,
   resolveProgressConflict,
   toLocalProgressSnapshot,
 } from "./studentSyncDomain.js";
 import SyncStatus from "./SyncStatus.jsx";
-
-function progressPayload(progress) {
-  return {
-    activeAttempt: progress?.activeAttempt ?? null,
-    reviewProgress: progress?.reviewProgress ?? {},
-  };
-}
 
 export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const [studentCode, setStudentCode] = useState("");
@@ -33,13 +29,30 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const mountedRef = useRef(true);
   const clientRef = useRef(null);
   const credentialsRef = useRef(null);
+  const rendererRef = useRef(null);
+  const sessionRef = useRef(null);
 
   useEffect(() => {
     mountedRef.current = true;
     const retryWhenOnline = () => {
-      void clientRef.current?.flush()
-        .then(() => {
-          if (mountedRef.current) setStatus("synced");
+      const currentSession = sessionRef.current;
+      const client = clientRef.current;
+      if (!client || !currentSession) return;
+      void recoverStudentSyncOnline({
+        client,
+        studentId: currentSession.identity.studentId,
+        quizId: quiz.id,
+        allowSubmitRetry: rendererRef.current !== null,
+        buildSubmissionRequest: (submission) => buildTrustedSubmissionRequest({
+          submission,
+          credentials: credentialsRef.current,
+          identity: currentSession.identity,
+          quiz,
+        }),
+      })
+        .then((result) => {
+          if (!mountedRef.current) return;
+          setStatus(result.status === "synced" ? "synced" : "submit-failed");
         })
         .catch((error) => {
           if (mountedRef.current) setStatus(classifyStudentSyncError(error));
@@ -51,15 +64,14 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       window.removeEventListener("online", retryWhenOnline);
       clientRef.current?.dispose();
     };
-  }, []);
+  }, [quiz]);
 
   function requestForProgress(progress) {
-    return {
-      ...credentialsRef.current,
-      quizId: quiz.id,
-      quizVersion: quiz.version,
-      ...progressPayload(progress),
-    };
+    return buildTrustedProgressRequest({
+      progress,
+      credentials: credentialsRef.current,
+      quiz,
+    });
   }
 
   async function enterQuiz(identity, progress, shouldSyncLocal = false) {
@@ -72,7 +84,9 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
       });
     }
     setConflict(null);
-    setSession({ identity, progress });
+    const nextSession = { identity, progress };
+    sessionRef.current = nextSession;
+    setSession(nextSession);
     if (!moduleLoader) {
       setStatus("unavailable");
       return;
@@ -85,6 +99,7 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         throw new Error("quiz-renderer-unavailable");
       }
       setRenderer(() => loadedModule.default);
+      rendererRef.current = loadedModule.default;
       setStatus("synced");
     } catch (error) {
       console.error("Quiz renderer load failed", error);
@@ -134,6 +149,18 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         storage: window.localStorage,
         callSave: saveStudentProgress,
         callSubmit: submitQuizAttempt,
+        onSaveState: (saveState) => {
+          if (!mountedRef.current) return;
+          if (saveState.status === "pending") {
+            setStatus("local-pending");
+          } else if (saveState.status === "synced") {
+            setStatus("synced");
+          } else if (saveState.errorState === "progress-conflict") {
+            void reloadProgressConflict(identity);
+          } else if (saveState.status === "error") {
+            setStatus(saveState.errorState === "unknown" ? "local-pending" : saveState.errorState);
+          }
+        },
       });
       const local = clientRef.current.load(identity.studentId, quiz.id);
       if (local?.quizVersion !== undefined && local.quizVersion !== quiz.version) {
@@ -158,8 +185,40 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
     }
   }
 
+  async function reloadProgressConflict(identity) {
+    try {
+      const cloudProgress = await loadStudentProgress({
+        ...credentialsRef.current,
+        quizId: quiz.id,
+        quizVersion: quiz.version,
+      });
+      if (!mountedRef.current) return;
+      const local = clientRef.current.load(identity.studentId, quiz.id);
+      const cloud = toLocalProgressSnapshot(cloudProgress, { pendingSync: false });
+      if (!local) {
+        clientRef.current.replaceLocalProgress({
+          studentId: identity.studentId,
+          quizId: quiz.id,
+          progress: cloud,
+        });
+        await enterQuiz(identity, cloud);
+        return;
+      }
+      rendererRef.current = null;
+      sessionRef.current = null;
+      setRenderer(null);
+      setSession(null);
+      setConflict({ mode: "choice", local, cloud, identity });
+      setStatus("conflict");
+    } catch (error) {
+      if (mountedRef.current) setStatus(classifyStudentSyncError(error));
+    }
+  }
+
   function chooseProgress(source) {
-    const value = source === "local" ? conflict.local : conflict.cloud;
+    const value = source === "local"
+      ? { ...conflict.local, revision: conflict.cloud.revision }
+      : conflict.cloud;
     if (source === "cloud") {
       clientRef.current.replaceLocalProgress({
         studentId: conflict.identity.studentId,
@@ -173,8 +232,10 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
   const syncCallbacks = session && clientRef.current
     ? {
         queueSave(nextProgress) {
+          const storedProgress = clientRef.current.load(session.identity.studentId, quiz.id);
           const versionedProgress = {
             ...nextProgress,
+            revision: nextProgress?.revision ?? storedProgress?.revision ?? 0,
             quizVersion: quiz.version,
             kind: quiz.kind,
           };
@@ -184,8 +245,11 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
             progress: versionedProgress,
             request: requestForProgress(versionedProgress),
           });
-          setSession((current) => ({ ...current, progress: versionedProgress }));
-          setStatus("local-pending");
+          setSession((current) => {
+            const nextSession = { ...current, progress: versionedProgress };
+            sessionRef.current = nextSession;
+            return nextSession;
+          });
         },
         async flush() {
           try {
@@ -199,16 +263,12 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         },
         async submit(submission) {
           setStatus("submitting");
-          const request = {
-            ...credentialsRef.current,
-            ...submission,
-            studentId: session.identity.studentId,
-            quizId: quiz.id,
-            quizVersion: quiz.version,
-            title: quiz.title,
-            subject: quiz.subject,
-            kind: quiz.kind,
-          };
+          const request = buildTrustedSubmissionRequest({
+            submission,
+            credentials: credentialsRef.current,
+            identity: session.identity,
+            quiz,
+          });
           try {
             const result = await clientRef.current.submit({
               studentId: session.identity.studentId,
@@ -219,7 +279,10 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
             if (mountedRef.current) setStatus("synced");
             return result;
           } catch (error) {
-            if (mountedRef.current) setStatus("submit-failed");
+            if (mountedRef.current) {
+              const errorState = classifyStudentSyncError(error);
+              setStatus(errorState === "unknown" ? "submit-failed" : errorState);
+            }
             throw error;
           }
         },
