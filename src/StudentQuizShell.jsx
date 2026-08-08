@@ -1,0 +1,320 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  ensureSignedIn,
+  loadStudentProgress,
+  saveStudentProgress,
+  submitQuizAttempt,
+} from "./firebase.js";
+import HomeLink from "./HomeLink.jsx";
+import ProgressConflictDialog from "./ProgressConflictDialog.jsx";
+import { validateStudentIdentity } from "./quizDomain.js";
+import {
+  classifyStudentSyncError,
+  createStudentSyncClient,
+  resolveProgressConflict,
+  toLocalProgressSnapshot,
+} from "./studentSyncDomain.js";
+import SyncStatus from "./SyncStatus.jsx";
+
+function progressPayload(progress) {
+  return {
+    activeAttempt: progress?.activeAttempt ?? null,
+    reviewProgress: progress?.reviewProgress ?? {},
+  };
+}
+
+export default function StudentQuizShell({ quiz, moduleLoader = null }) {
+  const [studentCode, setStudentCode] = useState("");
+  const [studentName, setStudentName] = useState("");
+  const [status, setStatus] = useState(null);
+  const [session, setSession] = useState(null);
+  const [conflict, setConflict] = useState(null);
+  const [Renderer, setRenderer] = useState(null);
+  const mountedRef = useRef(true);
+  const clientRef = useRef(null);
+  const credentialsRef = useRef(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const retryWhenOnline = () => {
+      void clientRef.current?.flush()
+        .then(() => {
+          if (mountedRef.current) setStatus("synced");
+        })
+        .catch((error) => {
+          if (mountedRef.current) setStatus(classifyStudentSyncError(error));
+        });
+    };
+    window.addEventListener("online", retryWhenOnline);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener("online", retryWhenOnline);
+      clientRef.current?.dispose();
+    };
+  }, []);
+
+  function requestForProgress(progress) {
+    return {
+      ...credentialsRef.current,
+      quizId: quiz.id,
+      quizVersion: quiz.version,
+      ...progressPayload(progress),
+    };
+  }
+
+  async function enterQuiz(identity, progress, shouldSyncLocal = false) {
+    if (shouldSyncLocal) {
+      clientRef.current.queueSave({
+        studentId: identity.studentId,
+        quizId: quiz.id,
+        progress,
+        request: requestForProgress(progress),
+      });
+    }
+    setConflict(null);
+    setSession({ identity, progress });
+    if (!moduleLoader) {
+      setStatus("unavailable");
+      return;
+    }
+    setStatus("loading");
+    try {
+      const loadedModule = await moduleLoader();
+      if (!mountedRef.current) return;
+      if (typeof loadedModule?.default !== "function") {
+        throw new Error("quiz-renderer-unavailable");
+      }
+      setRenderer(() => loadedModule.default);
+      setStatus("synced");
+    } catch (error) {
+      console.error("Quiz renderer load failed", error);
+      if (mountedRef.current) setStatus("unavailable");
+    }
+  }
+
+  async function startQuiz(event) {
+    event.preventDefault();
+    const checked = validateStudentIdentity({ studentCode, studentName });
+    if (!checked.valid) {
+      setStatus("bad-identity");
+      return;
+    }
+
+    setStatus("loading");
+    try {
+      await ensureSignedIn();
+      const credentials = {
+        studentCode: checked.studentCode,
+        studentName: checked.studentName,
+      };
+      const cloudProgress = await loadStudentProgress({
+        ...credentials,
+        quizId: quiz.id,
+        quizVersion: quiz.version,
+      });
+      if (typeof cloudProgress?.studentId !== "string" || !cloudProgress.studentId) {
+        throw Object.assign(new Error("student-entry-not-found"), {
+          code: "functions/permission-denied",
+        });
+      }
+      if (
+        cloudProgress.quizId !== quiz.id
+        || cloudProgress.quizVersion !== quiz.version
+      ) {
+        throw Object.assign(new Error("invalid-quiz-version"), {
+          code: "functions/invalid-argument",
+        });
+      }
+      if (!mountedRef.current) return;
+
+      credentialsRef.current = credentials;
+      const identity = { studentId: cloudProgress.studentId };
+      clientRef.current?.dispose();
+      clientRef.current = createStudentSyncClient({
+        storage: window.localStorage,
+        callSave: saveStudentProgress,
+        callSubmit: submitQuizAttempt,
+      });
+      const local = clientRef.current.load(identity.studentId, quiz.id);
+      if (local?.quizVersion !== undefined && local.quizVersion !== quiz.version) {
+        throw Object.assign(new Error("invalid-local-quiz-version"), {
+          code: "functions/invalid-argument",
+        });
+      }
+      const cloud = toLocalProgressSnapshot(cloudProgress, { pendingSync: false });
+      const resolution = resolveProgressConflict({ local, cloud });
+
+      setStudentCode("");
+      setStudentName("");
+      if (resolution.mode === "choice") {
+        setConflict({ ...resolution, identity });
+        setStatus("conflict");
+        return;
+      }
+      await enterQuiz(identity, resolution.value, resolution.mode === "local" && local?.pendingSync);
+    } catch (error) {
+      console.error("Student quiz load failed", error);
+      if (mountedRef.current) setStatus(classifyStudentSyncError(error));
+    }
+  }
+
+  function chooseProgress(source) {
+    const value = source === "local" ? conflict.local : conflict.cloud;
+    if (source === "cloud") {
+      clientRef.current.replaceLocalProgress({
+        studentId: conflict.identity.studentId,
+        quizId: quiz.id,
+        progress: value,
+      });
+    }
+    void enterQuiz(conflict.identity, value, source === "local");
+  }
+
+  const syncCallbacks = session && clientRef.current
+    ? {
+        queueSave(nextProgress) {
+          const versionedProgress = {
+            ...nextProgress,
+            quizVersion: quiz.version,
+            kind: quiz.kind,
+          };
+          clientRef.current.queueSave({
+            studentId: session.identity.studentId,
+            quizId: quiz.id,
+            progress: versionedProgress,
+            request: requestForProgress(versionedProgress),
+          });
+          setSession((current) => ({ ...current, progress: versionedProgress }));
+          setStatus("local-pending");
+        },
+        async flush() {
+          try {
+            const result = await clientRef.current.flush();
+            if (mountedRef.current) setStatus("synced");
+            return result;
+          } catch (error) {
+            if (mountedRef.current) setStatus(classifyStudentSyncError(error));
+            throw error;
+          }
+        },
+        async submit(submission) {
+          setStatus("submitting");
+          const request = {
+            ...credentialsRef.current,
+            ...submission,
+            studentId: session.identity.studentId,
+            quizId: quiz.id,
+            quizVersion: quiz.version,
+            title: quiz.title,
+            subject: quiz.subject,
+            kind: quiz.kind,
+          };
+          try {
+            const result = await clientRef.current.submit({
+              studentId: session.identity.studentId,
+              quizId: quiz.id,
+              submission: request,
+              request,
+            });
+            if (mountedRef.current) setStatus("synced");
+            return result;
+          } catch (error) {
+            if (mountedRef.current) setStatus("submit-failed");
+            throw error;
+          }
+        },
+        loadPendingAttempt() {
+          return clientRef.current.loadPendingAttempt(session.identity.studentId, quiz.id);
+        },
+      }
+    : null;
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-900 sm:py-12">
+      <div className="mx-auto max-w-3xl">
+        <nav className="mb-5 flex flex-wrap gap-3 text-sm">
+          <a href={`${import.meta.env.BASE_URL}quiz.html`} className="font-bold text-emerald-200 hover:text-white">
+            ← 返回試卷選單
+          </a>
+          <HomeLink variant="quiz" />
+        </nav>
+        <section className="rounded-3xl bg-[#f8f5ec] p-5 shadow-2xl sm:p-8">
+          <header className="border-b border-slate-200 pb-5">
+            <p className="text-xs font-bold tracking-[0.2em] text-emerald-800">{quiz.subject}</p>
+            <h1 className="mt-2 font-serif text-2xl font-bold sm:text-3xl">{quiz.title}</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{quiz.catalogDescription}</p>
+          </header>
+
+          <div className="mt-5">
+            <SyncStatus status={status} />
+          </div>
+
+          {!session && !conflict && (
+            <form onSubmit={startQuiz} className="mt-6 space-y-4">
+              <label className="block">
+                <span className="mb-1 block text-sm font-bold">學生專屬代碼</span>
+                <input
+                  value={studentCode}
+                  onChange={(event) => setStudentCode(event.target.value)}
+                  autoComplete="off"
+                  placeholder="例如：20260726-001"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-bold">學生姓名</span>
+                <input
+                  value={studentName}
+                  onChange={(event) => setStudentName(event.target.value)}
+                  autoComplete="name"
+                  maxLength={40}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                />
+              </label>
+              <p className="text-xs leading-5 text-slate-500">
+                姓名與專屬代碼只在本次頁面中送至雲端驗證，不會寫入瀏覽器的永久儲存空間。
+              </p>
+              <button
+                type="submit"
+                disabled={status === "loading"}
+                className="w-full rounded-xl bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50"
+              >
+                {status === "loading" ? "驗證中…" : "驗證並開啟試卷"}
+              </button>
+            </form>
+          )}
+
+          {conflict && (
+            <div className="mt-6">
+              <ProgressConflictDialog
+                quiz={quiz}
+                local={conflict.local}
+                cloud={conflict.cloud}
+                onChoose={chooseProgress}
+              />
+            </div>
+          )}
+
+          {session && Renderer && (
+            <div className="mt-6">
+              <Renderer
+                identity={session.identity}
+                progress={session.progress}
+                sync={syncCallbacks}
+              />
+            </div>
+          )}
+
+          {session && !Renderer && status === "unavailable" && (
+            <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+              <h2 className="font-bold">試卷內容尚未載入</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                學生資料已完成驗證，但這份試卷的作答畫面仍在建置中。你的姓名與代碼沒有保存在瀏覽器中。
+              </p>
+            </section>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}

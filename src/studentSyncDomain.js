@@ -1,0 +1,271 @@
+const RAW_IDENTITY_FIELDS = new Set(["studentName", "studentCode"]);
+const STORAGE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+
+function requireStorageSegment(value) {
+  if (typeof value !== "string" || !STORAGE_SEGMENT_PATTERN.test(value)) {
+    throw new Error("invalid-storage-key-segment");
+  }
+  return value;
+}
+
+export function progressStorageKey(studentId, quizId) {
+  return `jhst:progress:${requireStorageSegment(studentId)}:${requireStorageSegment(quizId)}`;
+}
+
+export function pendingAttemptStorageKey(studentId, quizId) {
+  return `jhst:pending-attempt:${requireStorageSegment(studentId)}:${requireStorageSegment(quizId)}`;
+}
+
+function containsRawIdentity(value, seen = new Set()) {
+  if (value === null || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.some((child) => containsRawIdentity(child, seen));
+  }
+  return Object.entries(value).some(([key, child]) => (
+    RAW_IDENTITY_FIELDS.has(key) || containsRawIdentity(child, seen)
+  ));
+}
+
+function withoutRawIdentity(value) {
+  if (Array.isArray(value)) return value.map(withoutRawIdentity);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !RAW_IDENTITY_FIELDS.has(key))
+        .map(([key, child]) => [key, withoutRawIdentity(child)]),
+    );
+  }
+  return value;
+}
+
+function cloneSerializable(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+export function createLocalProgressStore(storage) {
+  if (
+    typeof storage?.getItem !== "function"
+    || typeof storage?.setItem !== "function"
+    || typeof storage?.removeItem !== "function"
+  ) {
+    throw new Error("storage-unavailable");
+  }
+
+  return {
+    load(key) {
+      const raw = storage.getItem(key);
+      if (raw === null) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        storage.removeItem(key);
+        return null;
+      }
+    },
+
+    save(key, value) {
+      if (containsRawIdentity(value)) {
+        throw new Error("raw-student-identity-not-allowed");
+      }
+      storage.setItem(key, JSON.stringify(value));
+      return value;
+    },
+
+    remove(key) {
+      storage.removeItem(key);
+    },
+  };
+}
+
+function timestampToMs(value) {
+  if (Number.isFinite(value?.updatedAtMs)) return value.updatedAtMs;
+  if (typeof value?.updatedAt?.toMillis === "function") {
+    return value.updatedAt.toMillis();
+  }
+  if (Number.isFinite(value?.updatedAt?.seconds)) {
+    return (value.updatedAt.seconds * 1_000)
+      + Math.floor((value.updatedAt.nanoseconds ?? 0) / 1_000_000);
+  }
+  return 0;
+}
+
+export function toLocalProgressSnapshot(progress, { pendingSync, now = Date.now } = {}) {
+  const updatedAtMs = timestampToMs(progress) || (pendingSync === true ? now() : 0);
+  return {
+    updatedAtMs,
+    pendingSync: pendingSync === true,
+    quizVersion: progress?.quizVersion,
+    kind: progress?.kind,
+    activeAttempt: cloneSerializable(progress?.activeAttempt ?? null),
+    reviewProgress: cloneSerializable(progress?.reviewProgress ?? {}),
+  };
+}
+
+export function resolveProgressConflict({ local, cloud }) {
+  if (!local && !cloud) return { mode: "cloud", value: null };
+  if (!local) return { mode: "cloud", value: cloud };
+  if (!cloud) return { mode: "local", value: local };
+
+  if (local.pendingSync === true && local.updatedAtMs > timestampToMs(cloud)) {
+    return { mode: "choice", local, cloud };
+  }
+  if (local.updatedAtMs > timestampToMs(cloud)) {
+    return { mode: "local", value: local };
+  }
+  return { mode: "cloud", value: cloud };
+}
+
+function errorText(error) {
+  return `${error?.message ?? ""} ${error?.details ?? ""}`.toLowerCase();
+}
+
+export function classifyStudentSyncError(error) {
+  const code = String(error?.code ?? "").toLowerCase();
+  const text = errorText(error);
+  if (text.includes("firebase configuration is missing")) return "missing-config";
+  if (text.includes("invalid-quiz") || text.includes("version")) return "version-mismatch";
+  if (text.includes("student-inactive")) return "inactive-student";
+  if (
+    text.includes("invalid-student-identity")
+    || text.includes("student-entry-not-found")
+  ) return "bad-identity";
+  if (
+    code.includes("unavailable")
+    || code.includes("deadline-exceeded")
+    || text.includes("network-request-failed")
+  ) return "offline-pending";
+  if (code.includes("permission-denied")) return "permission-denied";
+  if (code.includes("invalid-argument")) return "bad-identity";
+  return "unknown";
+}
+
+export function createStudentSyncClient({
+  storage,
+  callSave,
+  callSubmit,
+  debounceMs = 350,
+  now = Date.now,
+  schedule = setTimeout,
+  cancel = clearTimeout,
+}) {
+  if (typeof callSave !== "function" || typeof callSubmit !== "function") {
+    throw new Error("student-callables-required");
+  }
+  const store = createLocalProgressStore(storage);
+  let queuedSave = null;
+  let activeSave = null;
+  let timer = null;
+  let disposed = false;
+  let generation = 0;
+  let retryNeeded = false;
+
+  function clearTimer() {
+    if (timer !== null) cancel(timer);
+    timer = null;
+  }
+
+  function scheduleSave(delay = debounceMs) {
+    if (disposed || timer !== null || activeSave || !queuedSave || retryNeeded) return;
+    timer = schedule(() => {
+      timer = null;
+      void runQueuedSave().catch(() => {});
+    }, delay);
+  }
+
+  function runQueuedSave() {
+    if (activeSave) return activeSave;
+    if (!queuedSave || disposed) return Promise.resolve(null);
+    clearTimer();
+    const job = queuedSave;
+    queuedSave = null;
+
+    activeSave = (async () => {
+      try {
+        const result = await callSave(job.request);
+        if (!disposed && generation === job.generation) {
+          const acknowledged = {
+            ...job.progress,
+            ...result,
+            updatedAtMs: result?.updatedAtMs,
+          };
+          store.save(
+            job.key,
+            toLocalProgressSnapshot(acknowledged, { pendingSync: false, now }),
+          );
+        }
+        return result;
+      } catch (error) {
+        if (!disposed && !queuedSave) {
+          queuedSave = job;
+          retryNeeded = true;
+        }
+        throw error;
+      }
+    })();
+
+    return activeSave.finally(() => {
+      activeSave = null;
+      if (queuedSave) scheduleSave(0);
+    });
+  }
+
+  return {
+    load(studentId, quizId) {
+      return store.load(progressStorageKey(studentId, quizId));
+    },
+
+    loadPendingAttempt(studentId, quizId) {
+      return store.load(pendingAttemptStorageKey(studentId, quizId));
+    },
+
+    replaceLocalProgress({ studentId, quizId, progress }) {
+      if (disposed) throw new Error("student-sync-client-disposed");
+      generation += 1;
+      retryNeeded = false;
+      clearTimer();
+      queuedSave = null;
+      const snapshot = toLocalProgressSnapshot(progress, { pendingSync: false, now });
+      store.save(progressStorageKey(studentId, quizId), snapshot);
+      return snapshot;
+    },
+
+    queueSave({ studentId, quizId, progress, request }) {
+      if (disposed) throw new Error("student-sync-client-disposed");
+      const key = progressStorageKey(studentId, quizId);
+      generation += 1;
+      retryNeeded = false;
+      store.save(key, toLocalProgressSnapshot(progress, { pendingSync: true, now }));
+      queuedSave = { key, progress, request, generation };
+      scheduleSave();
+    },
+
+    async flush() {
+      if (disposed) return null;
+      clearTimer();
+      retryNeeded = false;
+      let result = null;
+      while (activeSave || queuedSave) {
+        result = await (activeSave ?? runQueuedSave());
+      }
+      return result;
+    },
+
+    async submit({ studentId, quizId, submission, request }) {
+      const key = pendingAttemptStorageKey(studentId, quizId);
+      const safeSubmission = withoutRawIdentity(cloneSerializable(submission));
+      store.save(key, safeSubmission);
+      const result = await callSubmit(request);
+      store.remove(key);
+      return result;
+    },
+
+    dispose() {
+      disposed = true;
+      retryNeeded = false;
+      clearTimer();
+      queuedSave = null;
+    },
+  };
+}

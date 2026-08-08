@@ -67,5 +67,5 @@ test("homepage and quiz HTML load their dedicated React entries", async () => {
   assert.match(homeHtml, /src\/home-main\.jsx/);
   assert.match(homeHtml, /<title>測驗學習平台<\/title>/);
   assert.match(quizHtml, /src\/main\.jsx/);
-  assert.match(quizHtml, /<title>細胞與顯微鏡 隨堂測驗<\/title>/);
+  assert.match(quizHtml, /<title>學生試卷選單<\/title>/);
 });
