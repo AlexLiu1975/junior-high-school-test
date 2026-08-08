@@ -70,12 +70,50 @@ if (emulatorAvailable) {
         studentIds: [],
       });
       await setDoc(doc(db, "quizAttempts/existing-student-1"), {
+        quizId: "biology-cell-microscope-1",
+        quizVersion: 1,
+        quizKind: "multiple-choice",
+        quizTitle: "第1回 第1、2單元｜細胞與顯微鏡",
+        subject: "Biology",
         studentId: "student-1",
         studentUid: "student-uid",
+        studentCode: "20260726-001",
+        studentName: "王小明",
+        resultType: "score",
+        score: 80,
+        correctCount: 16,
+        wrongCount: 4,
+        submittedAt: Timestamp.fromDate(new Date("2026-08-02T04:05:06.000Z")),
       });
       await setDoc(doc(db, "quizAttempts/existing-student-2"), {
+        quizId: "periodic-table",
+        quizVersion: 1,
+        quizKind: "placement",
+        quizTitle: "化學元素週期表",
+        subject: "Science",
         studentId: "student-2",
-        studentUid: "other-student",
+        studentUid: "other-student-uid",
+        studentCode: "20260726-002",
+        studentName: "李小華",
+        resultType: "placement",
+        completedCount: 118,
+        totalItems: 118,
+        errorCount: 9,
+        durationSeconds: 755,
+        completed: true,
+        submittedAt: Timestamp.fromDate(new Date("2026-08-02T05:05:06.000Z")),
+      });
+      await setDoc(doc(db, "quizAttempts/legacy-student-1"), {
+        quizId: "cell-microscope-quiz1",
+        quizTitle: "舊版生物測驗",
+        studentId: "student-1",
+        studentUid: "legacy-student-uid",
+        studentCode: "20260726-001",
+        studentName: "王小明",
+        score: 70,
+        correctCount: 14,
+        wrongCount: 6,
+        submittedAt: Timestamp.fromDate(new Date("2026-08-01T04:05:06.000Z")),
       });
       await setDoc(doc(db, "attemptPrivate/existing-student-1"), {
         maskedIp: "203.0.113.xxx",
@@ -101,15 +139,37 @@ rulesTest("students cannot directly write server-managed progress or attempts", 
     .authenticatedContext("student-uid", auth("student-uid", "student@example.com"))
     .firestore();
   const validAttempt = {
-    quizId: "quiz-1",
+    quizId: "biology-cell-microscope-1",
+    quizVersion: 1,
+    quizKind: "multiple-choice",
     quizTitle: "試卷",
+    subject: "Biology",
     studentUid: "student-uid",
     studentId: "student-1",
     studentCode: "20260726-001",
     studentName: "王小明",
+    resultType: "score",
     score: 80,
     correctCount: 16,
     wrongCount: 4,
+    submittedAt: serverTimestamp(),
+  };
+  const validPlacementAttempt = {
+    quizId: "periodic-table",
+    quizVersion: 1,
+    quizKind: "placement",
+    quizTitle: "化學元素週期表",
+    subject: "Science",
+    studentUid: "student-uid",
+    studentId: "student-1",
+    studentCode: "20260726-001",
+    studentName: "王小明",
+    resultType: "placement",
+    completedCount: 118,
+    totalItems: 118,
+    errorCount: 9,
+    durationSeconds: 755,
+    completed: true,
     submittedAt: serverTimestamp(),
   };
   await assertFails(
@@ -118,6 +178,9 @@ rulesTest("students cannot directly write server-managed progress or attempts", 
     }),
   );
   await assertFails(setDoc(doc(studentDb, "quizAttempts/direct-write"), validAttempt));
+  await assertFails(
+    setDoc(doc(studentDb, "quizAttempts/direct-placement-write"), validPlacementAttempt),
+  );
   await assertFails(updateDoc(doc(studentDb, "quizAttempts/existing-student-1"), { score: 100 }));
   await assertFails(deleteDoc(doc(studentDb, "quizAttempts/existing-student-1")));
 });
@@ -168,6 +231,8 @@ rulesTest("record reads obey pending, teacher, and parent scopes", async () => {
   await assertSucceeds(
     getDocs(query(collection(parentDb, "quizAttempts"), where("studentId", "==", "student-1"))),
   );
+  await assertSucceeds(getDoc(doc(parentDb, "quizAttempts/legacy-student-1")));
+  await assertSucceeds(getDoc(doc(teacherDb, "quizAttempts/existing-student-2")));
   await assertFails(getDocs(collection(parentDb, "quizAttempts")));
   await assertFails(
     getDocs(query(collection(parentDb, "quizAttempts"), where("studentId", "==", "student-2"))),

@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeProgressPayload } from "../progressDomain.js";
+import { normalizeQuizProgress } from "../progressDomain.js";
+import { ENGLISH_REVIEW_2 } from "../shared/englishReview2Definition.js";
+import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
 import { requireStudentIdentity } from "../studentIdentity.js";
 
 const QUIZ_DEFINITION = {
+  kind: "multiple-choice",
+  supportsReviewProgress: true,
   questions: [
     { id: "q1", options: [{ id: "q1-o1" }, { id: "q1-o2" }] },
     { id: "q2", options: [{ id: "q2-o1" }, { id: "q2-o2" }] },
@@ -65,16 +69,19 @@ function createStudentDb(entryData) {
 }
 
 test("normalizes only valid, whitelisted progress fields", () => {
-  assert.deepEqual(normalizeProgressPayload(VALID_PROGRESS, QUIZ_DEFINITION), VALID_PROGRESS);
+  assert.deepEqual(normalizeQuizProgress(QUIZ_DEFINITION, VALID_PROGRESS), VALID_PROGRESS);
   assert.throws(
-    () => normalizeProgressPayload({ ...VALID_PROGRESS, studentId: "student-2" }, QUIZ_DEFINITION),
+    () => normalizeQuizProgress(
+      QUIZ_DEFINITION,
+      { ...VALID_PROGRESS, studentId: "student-2" },
+    ),
     /invalid-progress-payload/,
   );
   assert.throws(
-    () => normalizeProgressPayload({
+    () => normalizeQuizProgress(QUIZ_DEFINITION, {
       ...VALID_PROGRESS,
       activeAttempt: { ...VALID_PROGRESS.activeAttempt, answers: { q3: "q3-o1" } },
-    }, QUIZ_DEFINITION),
+    }),
     /invalid-progress-payload/,
   );
 });
@@ -121,7 +128,7 @@ test("rejects malformed nested progress payload fields", () => {
 
   for (const payload of malformedPayloads) {
     assert.throws(
-      () => normalizeProgressPayload(payload, QUIZ_DEFINITION),
+      () => normalizeQuizProgress(QUIZ_DEFINITION, payload),
       /invalid-progress-payload/,
     );
   }
@@ -130,10 +137,10 @@ test("rejects malformed nested progress payload fields", () => {
 test("accepts only bounded ASCII attempt IDs", () => {
   for (const attemptId of ["run/1", "run 1", "run\u0001", "測驗-1", "a".repeat(81)]) {
     assert.throws(
-      () => normalizeProgressPayload({
+      () => normalizeQuizProgress(QUIZ_DEFINITION, {
         ...VALID_PROGRESS,
         activeAttempt: { ...VALID_PROGRESS.activeAttempt, attemptId },
-      }, QUIZ_DEFINITION),
+      }),
       /invalid-progress-payload/,
     );
   }
@@ -146,10 +153,71 @@ test("requires real canonical review dates", () => {
     { q1: { ...VALID_PROGRESS.reviewProgress.q1, nextReview: "2026/04/31" } },
   ]) {
     assert.throws(
-      () => normalizeProgressPayload({ ...VALID_PROGRESS, reviewProgress }, QUIZ_DEFINITION),
+      () => normalizeQuizProgress(QUIZ_DEFINITION, { ...VALID_PROGRESS, reviewProgress }),
       /invalid-progress-payload/,
     );
   }
+});
+
+test("normalizes placement progress without accepting multiple-choice fields", () => {
+  const elementIds = PERIODIC_TABLE_QUIZ.elements.map(({ id }) => id);
+  const input = {
+    activeAttempt: {
+      attemptId: "periodic-progress-1",
+      poolOrder: [...elementIds].reverse(),
+      placedElementIds: elementIds.slice(0, 3),
+      errorCount: 4,
+      accumulatedSeconds: 91,
+      timerState: "paused",
+    },
+    reviewProgress: {},
+  };
+
+  assert.deepEqual(normalizeQuizProgress(PERIODIC_TABLE_QUIZ, input), input);
+  assert.throws(
+    () => normalizeQuizProgress(PERIODIC_TABLE_QUIZ, {
+      ...input,
+      activeAttempt: { ...input.activeAttempt, answers: {} },
+    }),
+    /invalid-progress-payload/,
+  );
+  for (const activeAttempt of [
+    { ...input.activeAttempt, poolOrder: elementIds.slice(1) },
+    { ...input.activeAttempt, placedElementIds: [elementIds[0], elementIds[0]] },
+    { ...input.activeAttempt, placedElementIds: ["unknown-element"] },
+    { ...input.activeAttempt, errorCount: 100001 },
+    { ...input.activeAttempt, accumulatedSeconds: -1 },
+    { ...input.activeAttempt, timerState: "offline" },
+  ]) {
+    assert.throws(
+      () => normalizeQuizProgress(PERIODIC_TABLE_QUIZ, { ...input, activeAttempt }),
+      /invalid-progress-payload/,
+    );
+  }
+  assert.throws(
+    () => normalizeQuizProgress(PERIODIC_TABLE_QUIZ, {
+      ...input,
+      reviewProgress: VALID_PROGRESS.reviewProgress,
+    }),
+    /invalid-progress-payload/,
+  );
+});
+
+test("only biology accepts review scheduling fields", () => {
+  assert.throws(
+    () => normalizeQuizProgress(ENGLISH_REVIEW_2, {
+      activeAttempt: null,
+      reviewProgress: VALID_PROGRESS.reviewProgress,
+    }),
+    /invalid-progress-payload/,
+  );
+  assert.deepEqual(normalizeQuizProgress(ENGLISH_REVIEW_2, {
+    activeAttempt: null,
+    reviewProgress: {},
+  }), {
+    activeAttempt: null,
+    reviewProgress: {},
+  });
 });
 
 test("resolves a trimmed active student entry without trusting a caller student ID", async () => {

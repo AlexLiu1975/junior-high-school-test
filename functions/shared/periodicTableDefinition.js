@@ -46,10 +46,11 @@ function makeElement([atomicNumber, symbol, chineseName, englishName, categoryCl
 }
 
 export const PERIODIC_TABLE_QUIZ = {
-  id: "periodic-table-placement",
+  id: "periodic-table",
   version: 1,
   kind: "placement",
   subject: "Science",
   title: "化學元素週期表",
+  catalogDescription: "118 個元素的位置、分類與符號練習",
   elements: RAW_ELEMENTS.map(makeElement),
 };

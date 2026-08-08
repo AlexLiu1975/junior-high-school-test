@@ -57,13 +57,9 @@ export function createFirestoreStudentRepository(db) {
       return read(db.collection("quizAttempts").doc(attemptId), transaction);
     },
 
-    createAttempt(attemptId, value, transaction) {
-      transaction.create(db.collection("quizAttempts").doc(attemptId), value);
-      return Promise.resolve();
-    },
-
-    createPrivateAttempt(attemptId, value, transaction) {
-      transaction.create(db.collection("attemptPrivate").doc(attemptId), value);
+    createAttemptRecords(attemptId, publicValue, privateValue, transaction) {
+      transaction.create(db.collection("quizAttempts").doc(attemptId), publicValue);
+      transaction.create(db.collection("attemptPrivate").doc(attemptId), privateValue);
       return Promise.resolve();
     },
 

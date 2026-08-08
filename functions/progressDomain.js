@@ -4,6 +4,8 @@ function invalidProgressPayload() {
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
 const CANONICAL_DATE_PATTERN = /^(\d{4})\/(\d{2})\/(\d{2})$/;
+const MAX_ERROR_COUNT = 100000;
+const MAX_ACCUMULATED_SECONDS = 604800;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -24,11 +26,19 @@ function hasExactMembers(value, expected) {
     && expected.every((item) => value.includes(item));
 }
 
-function normalizedQuestionMap(quizDefinition) {
-  if (!isRecord(quizDefinition) || !Array.isArray(quizDefinition.questions)) {
+function isAttemptId(value) {
+  return typeof value === "string" && ATTEMPT_ID_PATTERN.test(value);
+}
+
+function isBoundedInteger(value, max) {
+  return Number.isInteger(value) && value >= 0 && value <= max;
+}
+
+function normalizedQuestionMap(definition) {
+  if (!isRecord(definition) || !Array.isArray(definition.questions)) {
     invalidProgressPayload();
   }
-  const questions = quizDefinition.questions;
+  const questions = definition.questions;
   const questionIds = questions.map(({ id }) => id);
   if (
     questionIds.length === 0
@@ -36,6 +46,17 @@ function normalizedQuestionMap(quizDefinition) {
     || new Set(questionIds).size !== questionIds.length
   ) {
     invalidProgressPayload();
+  }
+  for (const question of questions) {
+    const optionIds = question.options?.map(({ id }) => id);
+    if (
+      !Array.isArray(optionIds)
+      || optionIds.length === 0
+      || optionIds.some((id) => typeof id !== "string")
+      || new Set(optionIds).size !== optionIds.length
+    ) {
+      invalidProgressPayload();
+    }
   }
   return new Map(questions.map((question) => [question.id, question]));
 }
@@ -53,7 +74,7 @@ function isCanonicalDate(value) {
     && date.getUTCDate() === day;
 }
 
-function normalizeActiveAttempt(value, questionMap) {
+function normalizeMultipleChoiceAttempt(value, questionMap) {
   if (value === null) return null;
   const questionIds = [...questionMap.keys()];
   const expectedKeys = [
@@ -67,7 +88,7 @@ function normalizeActiveAttempt(value, questionMap) {
 
   const { attemptId, questionOrder, optionOrder, answers, currentQuestionIndex } = value;
   if (
-    typeof attemptId !== "string" || !ATTEMPT_ID_PATTERN.test(attemptId)
+    !isAttemptId(attemptId)
     || !hasExactMembers(questionOrder, questionIds)
     || !hasExactKeys(optionOrder, questionIds)
     || !hasOnlyKeys(answers, questionIds)
@@ -81,8 +102,8 @@ function normalizeActiveAttempt(value, questionMap) {
   const normalizedOptionOrder = {};
   const normalizedAnswers = {};
   for (const questionId of questionIds) {
-    const optionIds = questionMap.get(questionId)?.options?.map(({ id }) => id);
-    if (!hasExactMembers(optionIds, optionIds) || !hasExactMembers(optionOrder[questionId], optionIds)) {
+    const optionIds = questionMap.get(questionId).options.map(({ id }) => id);
+    if (!hasExactMembers(optionOrder[questionId], optionIds)) {
       invalidProgressPayload();
     }
     normalizedOptionOrder[questionId] = [...optionOrder[questionId]];
@@ -122,19 +143,105 @@ function normalizeReviewEntry(value) {
   return { ...value };
 }
 
-function normalizeReviewProgress(value, questionMap) {
+function normalizeReviewProgress(value, questionMap, supported) {
   const questionIds = [...questionMap.keys()];
-  if (!hasOnlyKeys(value, questionIds)) invalidProgressPayload();
+  if (!hasOnlyKeys(value, supported ? questionIds : [])) invalidProgressPayload();
   return Object.fromEntries(
     Object.entries(value).map(([questionId, entry]) => [questionId, normalizeReviewEntry(entry)]),
   );
 }
 
-export function normalizeProgressPayload(input, quizDefinition) {
-  if (!hasExactKeys(input, ["activeAttempt", "reviewProgress"])) invalidProgressPayload();
-  const questionMap = normalizedQuestionMap(quizDefinition);
+function normalizeMultipleChoiceProgress(definition, input) {
+  if (!hasExactKeys(input, ["activeAttempt", "reviewProgress"])) {
+    invalidProgressPayload();
+  }
+  const questionMap = normalizedQuestionMap(definition);
   return {
-    activeAttempt: normalizeActiveAttempt(input.activeAttempt, questionMap),
-    reviewProgress: normalizeReviewProgress(input.reviewProgress, questionMap),
+    activeAttempt: normalizeMultipleChoiceAttempt(input.activeAttempt, questionMap),
+    reviewProgress: normalizeReviewProgress(
+      input.reviewProgress,
+      questionMap,
+      definition.supportsReviewProgress === true,
+    ),
   };
+}
+
+function normalizedElementIds(definition) {
+  if (!isRecord(definition) || !Array.isArray(definition.elements)) {
+    invalidProgressPayload();
+  }
+  const elementIds = definition.elements.map(({ id }) => id);
+  if (
+    elementIds.length === 0
+    || elementIds.some((id) => typeof id !== "string")
+    || new Set(elementIds).size !== elementIds.length
+  ) {
+    invalidProgressPayload();
+  }
+  return elementIds;
+}
+
+function normalizePlacementAttempt(value, elementIds) {
+  if (value === null) return null;
+  const expectedKeys = [
+    "attemptId",
+    "poolOrder",
+    "placedElementIds",
+    "errorCount",
+    "accumulatedSeconds",
+    "timerState",
+  ];
+  if (!hasExactKeys(value, expectedKeys)) invalidProgressPayload();
+  const {
+    attemptId,
+    poolOrder,
+    placedElementIds,
+    errorCount,
+    accumulatedSeconds,
+    timerState,
+  } = value;
+  const knownElementIds = new Set(elementIds);
+  if (
+    !isAttemptId(attemptId)
+    || !hasExactMembers(poolOrder, elementIds)
+    || !Array.isArray(placedElementIds)
+    || new Set(placedElementIds).size !== placedElementIds.length
+    || placedElementIds.some((id) => !knownElementIds.has(id))
+    || !isBoundedInteger(errorCount, MAX_ERROR_COUNT)
+    || !isBoundedInteger(accumulatedSeconds, MAX_ACCUMULATED_SECONDS)
+    || !["running", "paused"].includes(timerState)
+  ) {
+    invalidProgressPayload();
+  }
+  return {
+    attemptId,
+    poolOrder: [...poolOrder],
+    placedElementIds: [...placedElementIds],
+    errorCount,
+    accumulatedSeconds,
+    timerState,
+  };
+}
+
+function normalizePlacementProgress(definition, input) {
+  if (
+    !hasExactKeys(input, ["activeAttempt", "reviewProgress"])
+    || !hasExactKeys(input.reviewProgress, [])
+  ) {
+    invalidProgressPayload();
+  }
+  return {
+    activeAttempt: normalizePlacementAttempt(input.activeAttempt, normalizedElementIds(definition)),
+    reviewProgress: {},
+  };
+}
+
+export function normalizeQuizProgress(definition, input) {
+  if (definition?.kind === "multiple-choice") {
+    return normalizeMultipleChoiceProgress(definition, input);
+  }
+  if (definition?.kind === "placement") {
+    return normalizePlacementProgress(definition, input);
+  }
+  invalidProgressPayload();
 }

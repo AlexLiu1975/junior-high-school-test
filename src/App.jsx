@@ -20,7 +20,7 @@ import {
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_TITLE,
-} from "../functions/shared/quizDefinition.js";
+} from "../functions/shared/biologyDefinition.js";
 import HomeLink from "./HomeLink.jsx";
 
 const LETTERS = ["A", "B", "C", "D"];

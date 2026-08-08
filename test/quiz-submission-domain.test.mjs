@@ -4,11 +4,11 @@ import {
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_VERSION,
-  getQuizDefinition,
-} from "../functions/shared/quizDefinition.js";
+} from "../functions/shared/biologyDefinition.js";
 import {
-  validateAndScoreSubmission,
-} from "../functions/shared/quizSubmissionDomain.js";
+  getQuizDefinition,
+  validateQuizSubmission,
+} from "../functions/shared/quizRegistry.js";
 
 function validSubmission() {
   return {
@@ -37,12 +37,13 @@ test("exposes the current definition only for its stable ID and version", () => 
 });
 
 test("server scoring ignores caller supplied score and uses stable option IDs", () => {
-  const result = validateAndScoreSubmission({
+  const result = validateQuizSubmission(QUIZ_DEFINITION, {
     ...validSubmission(),
     score: 0,
   });
 
   assert.deepEqual(result, {
+    resultType: "score",
     correctCount: QUIZ_DEFINITION.questions.length,
     wrongCount: 0,
     score: 100,
@@ -52,7 +53,7 @@ test("server scoring ignores caller supplied score and uses stable option IDs", 
 
 test("unknown question and option IDs are rejected", () => {
   assert.throws(
-    () => validateAndScoreSubmission({
+    () => validateQuizSubmission(QUIZ_DEFINITION, {
       quizId: QUIZ_ID,
       quizVersion: QUIZ_VERSION,
       questionOrder: ["not-a-question"],
@@ -66,22 +67,41 @@ test("unknown question and option IDs are rejected", () => {
 test("null and array payloads use the stable validation error", () => {
   for (const payload of [null, []]) {
     assert.throws(
-      () => validateAndScoreSubmission(payload),
+      () => validateQuizSubmission(QUIZ_DEFINITION, payload),
       /invalid-submission/,
     );
   }
 });
 
-test("submission must include every question, option, and exactly one legal answer", () => {
+test("submission preserves legal ordering while omitted answers count wrong", () => {
   const missingQuestion = validSubmission();
   missingQuestion.questionOrder.pop();
-  assert.throws(() => validateAndScoreSubmission(missingQuestion), /invalid-submission/);
+  assert.throws(
+    () => validateQuizSubmission(QUIZ_DEFINITION, missingQuestion),
+    /invalid-submission/,
+  );
 
   const missingOption = validSubmission();
   missingOption.optionOrder.q1.pop();
-  assert.throws(() => validateAndScoreSubmission(missingOption), /invalid-submission/);
+  assert.throws(
+    () => validateQuizSubmission(QUIZ_DEFINITION, missingOption),
+    /invalid-submission/,
+  );
 
   const invalidAnswer = validSubmission();
   invalidAnswer.answers.q1 = "q1-o99";
-  assert.throws(() => validateAndScoreSubmission(invalidAnswer), /invalid-submission/);
+  assert.throws(
+    () => validateQuizSubmission(QUIZ_DEFINITION, invalidAnswer),
+    /invalid-submission/,
+  );
+
+  const missingAnswer = validSubmission();
+  delete missingAnswer.answers.q1;
+  assert.deepEqual(validateQuizSubmission(QUIZ_DEFINITION, missingAnswer), {
+    resultType: "score",
+    correctCount: QUIZ_DEFINITION.questions.length - 1,
+    wrongCount: 1,
+    score: 95,
+    wrongIds: ["q1"],
+  });
 });

@@ -1,8 +1,19 @@
-import { normalizeProgressPayload } from "./progressDomain.js";
-import { getQuizDefinition } from "./shared/quizDefinition.js";
-import { validateAndScoreSubmission } from "./shared/quizSubmissionDomain.js";
+import { normalizeQuizProgress } from "./progressDomain.js";
+import {
+  getQuizDefinition,
+  validateQuizSubmission,
+} from "./shared/quizRegistry.js";
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
+const PROGRESS_INPUT_FIELDS = new Set([
+  "studentCode",
+  "studentName",
+  "studentId",
+  "quizId",
+  "quizVersion",
+  "activeAttempt",
+  "reviewProgress",
+]);
 
 export function requireAnonymousAuth(auth) {
   if (
@@ -22,16 +33,26 @@ function requireQuiz(input) {
 }
 
 function progressPayload(input, definition) {
-  return normalizeProgressPayload({
+  if (
+    input === null
+    || typeof input !== "object"
+    || Array.isArray(input)
+    || Object.keys(input).some((key) => !PROGRESS_INPUT_FIELDS.has(key))
+  ) {
+    throw new Error("invalid-progress-payload");
+  }
+  return normalizeQuizProgress(definition, {
     activeAttempt: input?.activeAttempt,
     reviewProgress: input?.reviewProgress,
-  }, definition);
+  });
 }
 
-function emptyProgress(studentId, quizId) {
+function emptyProgress(studentId, definition) {
   return {
     studentId,
-    quizId,
+    quizId: definition.id,
+    quizVersion: definition.version,
+    kind: definition.kind,
     activeAttempt: null,
     reviewProgress: {},
     updatedAt: null,
@@ -44,7 +65,7 @@ export async function loadProgress({ repository, auth, input }) {
   const definition = requireQuiz(input);
   const student = await repository.resolveStudent(input);
   const stored = await repository.getProgress(student.studentId, definition.id);
-  return stored ?? emptyProgress(student.studentId, definition.id);
+  return stored ?? emptyProgress(student.studentId, definition);
 }
 
 export async function saveProgress({ repository, auth, input, now }) {
@@ -64,12 +85,14 @@ export async function saveProgress({ repository, auth, input, now }) {
           throw new Error("attempt-id-conflict");
         }
         return await repository.getProgress(student.studentId, definition.id, transaction)
-          ?? emptyProgress(student.studentId, definition.id);
+          ?? emptyProgress(student.studentId, definition);
       }
     }
     const progress = {
       studentId: student.studentId,
       quizId: definition.id,
+      quizVersion: definition.version,
+      kind: definition.kind,
       ...normalized,
       updatedAt: now,
       updatedByUid: auth.uid,
@@ -90,6 +113,28 @@ function validateAttemptId(attemptId) {
   return attemptId;
 }
 
+function publicResult(result) {
+  if (result.resultType === "score") {
+    return {
+      resultType: "score",
+      score: result.score,
+      correctCount: result.correctCount,
+      wrongCount: result.wrongCount,
+    };
+  }
+  if (result.resultType === "placement") {
+    return {
+      resultType: "placement",
+      completedCount: result.completedCount,
+      totalItems: result.totalItems,
+      errorCount: result.errorCount,
+      durationSeconds: result.durationSeconds,
+      completed: result.completed,
+    };
+  }
+  throw new Error("invalid-submission");
+}
+
 export async function submitAttempt({ repository, auth, input, maskedIp, now }) {
   requireAnonymousAuth(auth);
   const attemptId = validateAttemptId(input?.attemptId);
@@ -105,11 +150,11 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
     }
 
     const definition = requireQuiz(input);
-    const scoring = validateAndScoreSubmission(input);
-    const normalized = normalizeProgressPayload({
+    const result = validateQuizSubmission(definition, input);
+    const normalized = normalizeQuizProgress(definition, {
       activeAttempt: null,
-      reviewProgress: input?.reviewProgress,
-    }, definition);
+      reviewProgress: input?.reviewProgress ?? {},
+    });
     const currentProgress = await repository.getProgress(
       student.studentId,
       definition.id,
@@ -117,19 +162,22 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
     );
     const attempt = {
       quizId: definition.id,
+      quizVersion: definition.version,
+      quizKind: definition.kind,
       quizTitle: definition.title,
+      subject: definition.subject,
       studentUid: auth.uid,
       studentId: student.studentId,
       studentCode: student.studentCode,
       studentName: student.studentName,
-      score: scoring.score,
-      correctCount: scoring.correctCount,
-      wrongCount: scoring.wrongCount,
       submittedAt: now,
+      ...publicResult(result),
     };
     const progress = {
       studentId: student.studentId,
       quizId: definition.id,
+      quizVersion: definition.version,
+      kind: definition.kind,
       activeAttempt: null,
       reviewProgress: {
         ...(currentProgress?.reviewProgress ?? {}),
@@ -139,8 +187,12 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
       updatedByUid: auth.uid,
     };
 
-    await repository.createAttempt(attemptId, attempt, transaction);
-    await repository.createPrivateAttempt(attemptId, { maskedIp, createdAt: now }, transaction);
+    await repository.createAttemptRecords(
+      attemptId,
+      attempt,
+      { maskedIp, createdAt: now },
+      transaction,
+    );
     await repository.setProgress(student.studentId, definition.id, progress, transaction);
     return attemptResult(attemptId, attempt);
   });

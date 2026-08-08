@@ -77,11 +77,12 @@ export const saveStudentProgress = onCall(CALLABLE_OPTIONS, async (request) => {
 export const submitQuizAttempt = onCall(CALLABLE_OPTIONS, async (request) => {
   return callStudentService(() => {
     requireAnonymousAuth(request.auth);
+    const maskedIp = maskCallableIp(request);
     return submitAttempt({
       repository,
       auth: request.auth,
       input: request.data,
-      maskedIp: maskCallableIp(request),
+      maskedIp,
       now: Timestamp.now(),
     });
   });

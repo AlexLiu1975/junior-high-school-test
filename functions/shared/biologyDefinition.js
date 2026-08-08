@@ -1,6 +1,7 @@
-export const QUIZ_ID = "cell-microscope-quiz1";
+export const QUIZ_ID = "biology-cell-microscope-1";
 export const QUIZ_VERSION = 1;
 export const QUIZ_TITLE = "第1回 第1、2單元｜細胞與顯微鏡";
+export const QUIZ_CATALOG_DESCRIPTION = "細胞構造、物質進出細胞與顯微鏡操作複習";
 
 const RAW_QUESTIONS = [
   { id: "q1", n: 1, text: "關於英國科學家虎克的敘述，下列何者錯誤？", options: ["他是史上第一位描述細胞的科學家", "他用自製的顯微鏡觀察軟木塞薄片", "他所看見的格狀構造是植物細胞的細胞膜（壁）", "他所發現的細胞已不具生命現象"], correct: 2 },
@@ -28,7 +29,11 @@ const RAW_QUESTIONS = [
 export const QUIZ_DEFINITION = {
   id: QUIZ_ID,
   version: QUIZ_VERSION,
+  kind: "multiple-choice",
+  subject: "Biology",
   title: QUIZ_TITLE,
+  catalogDescription: QUIZ_CATALOG_DESCRIPTION,
+  supportsReviewProgress: true,
   questions: RAW_QUESTIONS.map((question) => ({
     ...question,
     options: question.options.map((text, index) => ({
@@ -38,9 +43,3 @@ export const QUIZ_DEFINITION = {
     })),
   })),
 };
-
-export function getQuizDefinition(quizId, version) {
-  return quizId === QUIZ_ID && version === QUIZ_VERSION
-    ? QUIZ_DEFINITION
-    : null;
-}

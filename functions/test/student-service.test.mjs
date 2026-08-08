@@ -9,7 +9,9 @@ import {
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_VERSION,
-} from "../shared/quizDefinition.js";
+} from "../shared/biologyDefinition.js";
+import { ENGLISH_REVIEW_2 } from "../shared/englishReview2Definition.js";
+import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
 
 const functionsEntrypoint = await import("../index.js");
 
@@ -81,6 +83,20 @@ const PERFECT_INPUT = {
   reviewProgress: REVIEW_PROGRESS,
 };
 
+const PERIODIC_PLACEMENTS = Object.fromEntries(
+  PERIODIC_TABLE_QUIZ.elements.map(({ id, targetId }) => [id, targetId]),
+);
+const VALID_PERIODIC_INPUT = {
+  studentCode: STUDENT.studentCode,
+  studentName: STUDENT.studentName,
+  attemptId: "attempt-periodic-1",
+  quizId: "periodic-table",
+  quizVersion: PERIODIC_TABLE_QUIZ.version,
+  placements: PERIODIC_PLACEMENTS,
+  errorCount: 9,
+  durationSeconds: 755,
+};
+
 function studentKey({ studentCode, studentName }) {
   return `${studentCode}/${studentName}`;
 }
@@ -131,12 +147,9 @@ function createMemoryStudentRepository({
       return (transaction?.attempts ?? repository.attempts).get(attemptId) ?? null;
     },
 
-    async createAttempt(attemptId, value, transaction) {
-      transaction.attempts.set(attemptId, structuredClone(value));
-    },
-
-    async createPrivateAttempt(attemptId, value, transaction) {
-      transaction.privateAttempts.set(attemptId, structuredClone(value));
+    async createAttemptRecords(attemptId, publicValue, privateValue, transaction) {
+      transaction.attempts.set(attemptId, structuredClone(publicValue));
+      transaction.privateAttempts.set(attemptId, structuredClone(privateValue));
     },
 
     async runTransaction(callback) {
@@ -301,6 +314,8 @@ test("saving one student never writes another student path", async () => {
 
   assert.deepEqual([...repository.progress.keys()], [`${STUDENT.studentId}/${QUIZ_ID}`]);
   assert.equal(saved.studentId, STUDENT.studentId);
+  assert.equal(saved.quizVersion, QUIZ_VERSION);
+  assert.equal(saved.kind, "multiple-choice");
   assert.equal(saved.updatedByUid, ANON_AUTH.uid);
 });
 
@@ -333,6 +348,26 @@ test("invalid progress and unknown quiz payloads are rejected before writes", as
     /invalid-quiz/,
   );
   assert.equal(repository.progress.size, 0);
+});
+
+test("progress services reject unknown and cross-kind top-level fields", async () => {
+  for (const extraFields of [
+    { placements: {} },
+    { poolOrder: [] },
+    { unexpected: true },
+  ]) {
+    const repository = createMemoryStudentRepository();
+    await assert.rejects(
+      saveProgress({
+        repository,
+        auth: ANON_AUTH,
+        input: { ...VALID_PROGRESS_INPUT, ...extraFields },
+        now: NOW,
+      }),
+      /invalid-progress-payload/,
+    );
+    assert.equal(repository.progress.size, 0);
+  }
 });
 
 test("the same attemptId is committed once and returns the stored result on retry", async () => {
@@ -407,6 +442,8 @@ test("attempt completion recomputes score and atomically clears only active prog
   assert.deepEqual(repository.progress.get(`${STUDENT.studentId}/${QUIZ_ID}`), {
     studentId: STUDENT.studentId,
     quizId: QUIZ_ID,
+    quizVersion: QUIZ_VERSION,
+    kind: "multiple-choice",
     activeAttempt: null,
     reviewProgress: {
       q2: {
@@ -421,6 +458,128 @@ test("attempt completion recomputes score and atomically clears only active prog
     updatedAt: NOW,
     updatedByUid: ANON_AUTH.uid,
   });
+});
+
+test("registered English attempts use trusted catalog metadata and fixed score fields", async () => {
+  const repository = createMemoryStudentRepository();
+  const firstQuestion = ENGLISH_REVIEW_2.questions[0];
+  const correctAnswer = firstQuestion.options.find(({ correct }) => correct).id;
+  const input = {
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    studentId: OTHER_STUDENT.studentId,
+    attemptId: "attempt-english-1",
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    title: "forged title",
+    subject: "forged subject",
+    kind: "placement",
+    score: 100,
+    answers: { [firstQuestion.id]: correctAnswer },
+    reviewProgress: {},
+  };
+
+  const result = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input,
+    maskedIp: "203.0.113.xxx",
+    now: NOW,
+  });
+
+  assert.deepEqual(result, {
+    attemptId: input.attemptId,
+    quizId: "english-review-2",
+    quizVersion: 1,
+    quizKind: "multiple-choice",
+    quizTitle: ENGLISH_REVIEW_2.title,
+    subject: ENGLISH_REVIEW_2.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "score",
+    score: 2,
+    correctCount: 1,
+    wrongCount: 39,
+  });
+  assert.equal(Object.hasOwn(result, "completedCount"), false);
+  assert.deepEqual([...repository.privateAttempts.keys()], [input.attemptId]);
+});
+
+test("placement attempts use a fixed placement result and never accept score fields", async () => {
+  const repository = createMemoryStudentRepository();
+  await assert.rejects(
+    submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input: { ...VALID_PERIODIC_INPUT, score: 100 },
+      maskedIp: "203.0.113.xxx",
+      now: NOW,
+    }),
+    (error) => error?.message === "invalid-submission",
+  );
+  assert.equal(repository.attempts.size, 0);
+  assert.equal(repository.privateAttempts.size, 0);
+
+  const result = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: VALID_PERIODIC_INPUT,
+    maskedIp: "203.0.113.xxx",
+    now: NOW,
+  });
+  assert.deepEqual(result, {
+    attemptId: VALID_PERIODIC_INPUT.attemptId,
+    quizId: "periodic-table",
+    quizVersion: 1,
+    quizKind: "placement",
+    quizTitle: PERIODIC_TABLE_QUIZ.title,
+    subject: PERIODIC_TABLE_QUIZ.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "placement",
+    completedCount: 118,
+    totalItems: 118,
+    errorCount: 9,
+    durationSeconds: 755,
+    completed: true,
+  });
+  assert.equal(Object.hasOwn(result, "score"), false);
+  assert.deepEqual([...repository.attempts.keys()], [VALID_PERIODIC_INPUT.attemptId]);
+  assert.deepEqual([...repository.privateAttempts.keys()], [VALID_PERIODIC_INPUT.attemptId]);
+});
+
+test("a matching stored placement attempt returns before malformed body validation", async () => {
+  const repository = createMemoryStudentRepository();
+  const stored = {
+    quizId: VALID_PERIODIC_INPUT.quizId,
+    studentId: STUDENT.studentId,
+    resultType: "placement",
+    completedCount: 118,
+  };
+  repository.attempts.set(VALID_PERIODIC_INPUT.attemptId, stored);
+
+  assert.deepEqual(await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: {
+      ...VALID_PERIODIC_INPUT,
+      quizVersion: 999,
+      placements: {},
+      score: 100,
+    },
+    maskedIp: "198.51.100.xxx",
+    now: NOW,
+  }), {
+    attemptId: VALID_PERIODIC_INPUT.attemptId,
+    ...stored,
+  });
+  assert.equal(repository.privateAttempts.size, 0);
 });
 
 test("a delayed save cannot restore an attempt that has already completed", async () => {

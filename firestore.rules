@@ -31,6 +31,10 @@ service cloud.firestore {
         && studentId in access().studentIds;
     }
 
+    function canReadAttempt(studentId) {
+      return isAdmin() || isTeacher() || parentCanRead(studentId);
+    }
+
     match /users/{uid}/quizzes/{quizId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
@@ -42,7 +46,7 @@ service cloud.firestore {
     }
 
     match /quizAttempts/{attemptId} {
-      allow read: if isAdmin() || isTeacher() || parentCanRead(resource.data.studentId);
+      allow read: if canReadAttempt(resource.data.studentId);
       allow write: if false;
     }
 
