@@ -599,6 +599,7 @@ test("registered English attempts use trusted catalog metadata and fixed score f
     maskedIp: "203.0.113.xxx",
     now: NOW,
   });
+  const expectedWrongIds = ENGLISH_REVIEW_2.questions.slice(1).map(({ id }) => id);
 
   assert.deepEqual(result, {
     attemptId: input.attemptId,
@@ -616,9 +617,53 @@ test("registered English attempts use trusted catalog metadata and fixed score f
     score: 2,
     correctCount: 1,
     wrongCount: 39,
+    wrongIds: expectedWrongIds,
   });
+  assert.deepEqual(repository.attempts.get(input.attemptId).wrongIds, expectedWrongIds);
+  assert.equal(Object.hasOwn(result, "answers"), false);
+  assert.equal(Object.hasOwn(result, "correctOptionIds"), false);
   assert.equal(Object.hasOwn(result, "completedCount"), false);
+  repository.attempts.set(input.attemptId, {
+    ...repository.attempts.get(input.attemptId),
+    answers: { e01: correctAnswer },
+    correctOptionIds: [correctAnswer],
+    extraSecret: "must-not-leak",
+  });
+  const retry = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: { ...input, answers: { unknown: "not-an-option" } },
+    maskedIp: "198.51.100.xxx",
+    now: NOW,
+  });
+  assert.deepEqual(retry, result);
+  assert.equal(Object.hasOwn(retry, "answers"), false);
+  assert.equal(Object.hasOwn(retry, "correctOptionIds"), false);
   assert.deepEqual([...repository.privateAttempts.keys()], [input.attemptId]);
+});
+
+test("a stored score retry rejects wrong IDs outside the registered question set", async () => {
+  const repository = createMemoryStudentRepository();
+  const firstQuestion = ENGLISH_REVIEW_2.questions[0];
+  const correctAnswer = firstQuestion.options.find(({ correct }) => correct).id;
+  const input = {
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    attemptId: "attempt-english-corrupt-wrong-ids",
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    questionOrder: ENGLISH_QUESTION_ORDER,
+    optionOrder: ENGLISH_OPTION_ORDER,
+    answers: { [firstQuestion.id]: correctAnswer },
+    reviewProgress: {},
+  };
+  await submitAttempt({ repository, auth: ANON_AUTH, input, maskedIp: "203.0.113.xxx", now: NOW });
+  repository.attempts.get(input.attemptId).wrongIds[0] = "e99";
+
+  await assert.rejects(
+    submitAttempt({ repository, auth: ANON_AUTH, input, maskedIp: "203.0.113.xxx", now: NOW }),
+    /attempt-id-conflict/,
+  );
 });
 
 test("placement attempts use a fixed placement result and never accept score fields", async () => {
@@ -628,6 +673,16 @@ test("placement attempts use a fixed placement result and never accept score fie
       repository,
       auth: ANON_AUTH,
       input: { ...VALID_PERIODIC_INPUT, score: 100 },
+      maskedIp: "203.0.113.xxx",
+      now: NOW,
+    }),
+    (error) => error?.message === "invalid-submission",
+  );
+  await assert.rejects(
+    submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input: { ...VALID_PERIODIC_INPUT, wrongIds: ["h"] },
       maskedIp: "203.0.113.xxx",
       now: NOW,
     }),

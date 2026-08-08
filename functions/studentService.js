@@ -202,6 +202,13 @@ function projectStoredScore(attemptId, stored, definition, mode) {
   const placementFields = [
     "completedCount", "totalItems", "errorCount", "durationSeconds", "completed",
   ];
+  const questionIds = new Set(definition.questions.map(({ id }) => id));
+  const hasValidWrongIds = mode === "legacy-score"
+    ? stored.wrongIds === undefined
+    : Array.isArray(stored.wrongIds)
+      && stored.wrongIds.length === stored.wrongCount
+      && new Set(stored.wrongIds).size === stored.wrongIds.length
+      && stored.wrongIds.every((questionId) => questionIds.has(questionId));
   if (
     definition.kind !== "multiple-choice"
     || (mode === "current" && stored.resultType !== "score")
@@ -213,16 +220,19 @@ function projectStoredScore(attemptId, stored, definition, mode) {
     || !isBoundedInteger(stored.correctCount, definition.questions.length)
     || !isBoundedInteger(stored.wrongCount, definition.questions.length)
     || stored.correctCount + stored.wrongCount !== definition.questions.length
+    || !hasValidWrongIds
   ) {
     attemptIdConflict();
   }
-  return {
+  const projected = {
     ...projectStoredBase(attemptId, stored, definition),
     resultType: "score",
     score: stored.score,
     correctCount: stored.correctCount,
     wrongCount: stored.wrongCount,
   };
+  if (mode === "current") projected.wrongIds = [...stored.wrongIds];
+  return projected;
 }
 
 function projectStoredPlacement(attemptId, stored, definition, mode) {
@@ -271,6 +281,7 @@ function publicResult(result) {
       score: result.score,
       correctCount: result.correctCount,
       wrongCount: result.wrongCount,
+      wrongIds: [...result.wrongIds],
     };
   }
   if (result.resultType === "placement") {

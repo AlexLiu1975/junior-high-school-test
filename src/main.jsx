@@ -6,8 +6,11 @@ import { resolveQuizRoute } from './quizCatalogDomain.js'
 import StudentQuizShell from './StudentQuizShell.jsx'
 
 const route = resolveQuizRoute(window.location.search)
-const moduleLoader = route.mode === 'quiz' && route.quiz.id === 'biology-cell-microscope-1'
-  ? () => import('./BiologyQuiz.jsx')
+const moduleLoader = route.mode === 'quiz'
+  ? {
+      'biology-cell-microscope-1': () => import('./BiologyQuiz.jsx'),
+      'english-review-2': () => import('./EnglishReview2Quiz.jsx'),
+    }[route.quiz.id] ?? null
   : null
 const quizEntry = route.mode === 'catalog'
   ? <QuizNavigation />
