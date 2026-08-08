@@ -1,4 +1,5 @@
 const STORAGE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+const PENDING_ATTEMPTS_SCHEMA_VERSION = 2;
 
 function isRawIdentityField(key) {
   const normalized = String(key).toLowerCase().replace(/[_\-\s]/g, "");
@@ -196,17 +197,74 @@ export function createStudentSyncClient({
   const store = createLocalProgressStore(storage);
   let queuedSave = null;
   let activeSave = null;
+  let activeSaveJob = null;
   let timer = null;
   let disposed = false;
   let generation = 0;
   let retryNeeded = false;
   let submissionSequence = 0;
+  const activeSubmissions = new Map();
+
+  function pendingAttemptsFromStored(value) {
+    if (
+      value?.schemaVersion === PENDING_ATTEMPTS_SCHEMA_VERSION
+      && Array.isArray(value.attempts)
+    ) {
+      return value.attempts.filter((entry) => (
+        typeof entry?.pendingToken === "string"
+        && entry.pendingToken.length > 0
+        && entry.submission !== null
+        && typeof entry.submission === "object"
+      ));
+    }
+    if (
+      typeof value?.pendingToken === "string"
+      && value.pendingToken.length > 0
+      && value.submission !== null
+      && typeof value.submission === "object"
+    ) {
+      return [value];
+    }
+    return [];
+  }
+
+  function loadPendingAttempts(key) {
+    return pendingAttemptsFromStored(store.load(key));
+  }
+
+  function savePendingAttempts(key, attempts) {
+    if (attempts.length === 0) {
+      store.remove(key);
+      return;
+    }
+    store.save(key, {
+      schemaVersion: PENDING_ATTEMPTS_SCHEMA_VERSION,
+      attempts,
+    });
+  }
+
+  function removePendingAttempt(key, pendingToken) {
+    savePendingAttempts(
+      key,
+      loadPendingAttempts(key).filter((entry) => entry.pendingToken !== pendingToken),
+    );
+  }
+
+  function isSameScope(value, studentId, quizId) {
+    return value?.studentId === studentId && value?.quizId === quizId;
+  }
 
   function getReadiness(studentId, quizId) {
-    if (queuedSave || activeSave || timer !== null || retryNeeded) {
+    const progressKey = progressStorageKey(studentId, quizId);
+    const hasInMemoryProgress = isSameScope(queuedSave, studentId, quizId)
+      || isSameScope(activeSaveJob, studentId, quizId);
+    if (hasInMemoryProgress || store.load(progressKey)?.pendingSync === true) {
       return { status: "progress-pending" };
     }
-    if (store.load(pendingAttemptStorageKey(studentId, quizId))) {
+    const hasActiveSubmission = [...activeSubmissions.values()]
+      .some((entry) => isSameScope(entry, studentId, quizId));
+    const pendingKey = pendingAttemptStorageKey(studentId, quizId);
+    if (hasActiveSubmission || loadPendingAttempts(pendingKey).length > 0) {
       return { status: "pending-attempt" };
     }
     return { status: "synced" };
@@ -237,6 +295,7 @@ export function createStudentSyncClient({
     clearTimer();
     const job = queuedSave;
     queuedSave = null;
+    activeSaveJob = job;
     let didAcknowledge = false;
     let acknowledgedResult = null;
 
@@ -285,6 +344,7 @@ export function createStudentSyncClient({
 
     activeSave = operation.finally(() => {
       activeSave = null;
+      activeSaveJob = null;
       if (queuedSave) {
         scheduleSave(0);
       } else if (didAcknowledge && !disposed) {
@@ -302,7 +362,7 @@ export function createStudentSyncClient({
     },
 
     loadPendingAttempt(studentId, quizId) {
-      return store.load(pendingAttemptStorageKey(studentId, quizId));
+      return loadPendingAttempts(pendingAttemptStorageKey(studentId, quizId))[0] ?? null;
     },
 
     getReadiness,
@@ -358,35 +418,48 @@ export function createStudentSyncClient({
       if (disposed) throw new Error("student-sync-client-disposed");
       const key = pendingAttemptStorageKey(studentId, quizId);
       const safeSubmission = withoutRawIdentity(cloneSerializable(submission));
-      submissionSequence += 1;
-      const pendingToken = typeof createToken === "function"
-        ? createToken()
-        : globalThis.crypto?.randomUUID?.() ?? `${now()}-${submissionSequence}`;
-      const pending = { pendingToken, submission: safeSubmission };
-      store.save(key, pending);
-      const result = await callSubmit(request);
-      if (!disposed) {
-        const current = store.load(key);
-        if (
-          current?.pendingToken === pendingToken
-          && current?.submission?.attemptId === safeSubmission?.attemptId
-        ) {
-          store.remove(key);
-        }
+      const storedAttempts = loadPendingAttempts(key);
+      let pending = typeof safeSubmission?.attemptId === "string"
+        ? storedAttempts.find((entry) => (
+            entry.submission?.attemptId === safeSubmission.attemptId
+            && !activeSubmissions.has(entry.pendingToken)
+          ))
+        : null;
+      if (!pending) {
+        submissionSequence += 1;
+        const pendingToken = typeof createToken === "function"
+          ? createToken()
+          : globalThis.crypto?.randomUUID?.() ?? `${now()}-${submissionSequence}`;
+        pending = { pendingToken, submission: safeSubmission };
+        savePendingAttempts(key, [...storedAttempts, pending]);
       }
-      return result;
+      activeSubmissions.set(pending.pendingToken, { studentId, quizId });
+      try {
+        const result = await callSubmit(request);
+        if (!disposed) {
+          removePendingAttempt(key, pending.pendingToken);
+        }
+        return result;
+      } finally {
+        activeSubmissions.delete(pending.pendingToken);
+      }
     },
 
     async retryPendingAttempt({ studentId, quizId, buildRequest }) {
       if (disposed) throw new Error("student-sync-client-disposed");
       const key = pendingAttemptStorageKey(studentId, quizId);
-      const pending = store.load(key);
+      const pending = loadPendingAttempts(key)[0];
       if (!pending) return null;
-      const result = await callSubmit(buildRequest(pending.submission));
-      if (!disposed && store.load(key)?.pendingToken === pending.pendingToken) {
-        store.remove(key);
+      activeSubmissions.set(pending.pendingToken, { studentId, quizId });
+      try {
+        const result = await callSubmit(buildRequest(pending.submission));
+        if (!disposed) {
+          removePendingAttempt(key, pending.pendingToken);
+        }
+        return result;
+      } finally {
+        activeSubmissions.delete(pending.pendingToken);
       }
-      return result;
     },
 
     dispose() {

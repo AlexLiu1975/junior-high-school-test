@@ -385,6 +385,38 @@ test("readiness never reports synced while progress or attempt work remains", as
   client.dispose();
 });
 
+test("readiness restores pending progress from storage after dispose and reload", () => {
+  const storage = createMemoryStorage();
+  const firstClient = createStudentSyncClient({
+    storage,
+    debounceMs: 60_000,
+    callSave: async () => ({}),
+    callSubmit: async () => ({}),
+  });
+  firstClient.queueSave({
+    studentId: "student-1",
+    quizId: "english-review-2",
+    progress: PROGRESS,
+    request: PROGRESS,
+  });
+  firstClient.dispose();
+
+  const reloadedClient = createStudentSyncClient({
+    storage,
+    debounceMs: 60_000,
+    callSave: async () => ({}),
+    callSubmit: async () => ({}),
+  });
+
+  assert.deepEqual(reloadedClient.getReadiness("student-1", "english-review-2"), {
+    status: "progress-pending",
+  });
+  assert.deepEqual(reloadedClient.getReadiness("student-1", "periodic-table"), {
+    status: "synced",
+  });
+  reloadedClient.dispose();
+});
+
 test("debounced saves report pending, acknowledged, and classified failure states", async () => {
   const storage = createMemoryStorage();
   const states = [];
@@ -558,6 +590,106 @@ test("an older submission acknowledgement cannot delete a newer failed pending a
   );
   assert.equal(pending.submission.attemptId, "run-b");
   assert.equal(JSON.stringify(pending).includes("must-strip"), false);
+  client.dispose();
+});
+
+test("a newer success cannot erase an older active submission that later fails", async () => {
+  const storage = createMemoryStorage();
+  const first = deferred();
+  const second = deferred();
+  let call = 0;
+  const client = createStudentSyncClient({
+    storage,
+    createToken: () => `token-${call + 1}`,
+    callSave: async () => ({}),
+    callSubmit: () => {
+      call += 1;
+      return call === 1 ? first.promise : second.promise;
+    },
+  });
+
+  const firstSubmit = client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-a" },
+    request: { attemptId: "run-a" },
+  });
+  const secondSubmit = client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-b" },
+    request: { attemptId: "run-b" },
+  });
+
+  second.resolve({ attemptId: "run-b" });
+  await secondSubmit;
+  assert.deepEqual(client.getReadiness("student-1", "biology-cell-microscope-1"), {
+    status: "pending-attempt",
+  });
+
+  first.reject(new Error("offline-a"));
+  await assert.rejects(firstSubmit, /offline-a/);
+  assert.equal(client.loadPendingAttempt(
+    "student-1",
+    "biology-cell-microscope-1",
+  ).submission.attemptId, "run-a");
+  assert.deepEqual(client.getReadiness("student-1", "biology-cell-microscope-1"), {
+    status: "pending-attempt",
+  });
+  client.dispose();
+});
+
+test("a legacy single pending attempt survives a newer failed submission", async () => {
+  const storage = createMemoryStorage();
+  storage.setItem(
+    pendingAttemptStorageKey("student-1", "biology-cell-microscope-1"),
+    JSON.stringify({
+      pendingToken: "legacy-token",
+      submission: { attemptId: "legacy-run" },
+    }),
+  );
+  let firstNewCall = true;
+  const retried = [];
+  const client = createStudentSyncClient({
+    storage,
+    createToken: () => "new-token",
+    callSave: async () => ({}),
+    callSubmit: async (request) => {
+      if (request.attemptId === "run-b" && firstNewCall) {
+        firstNewCall = false;
+        throw new Error("offline-b");
+      }
+      retried.push(request.attemptId);
+      return { attemptId: request.attemptId };
+    },
+  });
+
+  await assert.rejects(client.submit({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    submission: { attemptId: "run-b" },
+    request: { attemptId: "run-b" },
+  }), /offline-b/);
+  await client.retryPendingAttempt({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    buildRequest: (submission) => submission,
+  });
+  assert.equal(client.loadPendingAttempt(
+    "student-1",
+    "biology-cell-microscope-1",
+  ).submission.attemptId, "run-b");
+  await client.retryPendingAttempt({
+    studentId: "student-1",
+    quizId: "biology-cell-microscope-1",
+    buildRequest: (submission) => submission,
+  });
+
+  assert.deepEqual(retried, ["legacy-run", "run-b"]);
+  assert.equal(client.loadPendingAttempt(
+    "student-1",
+    "biology-cell-microscope-1",
+  ), null);
   client.dispose();
 });
 
