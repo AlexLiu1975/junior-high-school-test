@@ -34,6 +34,14 @@ async function read(ref, transaction) {
   return snapshot.exists ? snapshot.data() : null;
 }
 
+function isExactAdminStudentLink(ref, studentId) {
+  const segments = ref?.path?.split("/");
+  return segments?.length === 4
+    && segments[0] === "adminStudentLinks"
+    && segments[2] === "students"
+    && segments[3] === studentId;
+}
+
 export function createFirestoreStudentRepository(db) {
   return {
     resolveStudent(input, transaction) {
@@ -81,17 +89,16 @@ export function createFirestoreStudentRepository(db) {
         const attemptQuery = db.collection("quizAttempts").where("studentId", "==", studentId);
         const progressCollection = db.collection("studentProgress").doc(studentId).collection("quizzes");
         const parentAccessQuery = db.collection("viewerAccess").where("studentIds", "array-contains", studentId);
-        const [attemptSnapshot, progressSnapshot, parentAccessSnapshot] = await Promise.all([
+        const adminLinksQuery = db.collectionGroup("students").where("studentId", "==", studentId);
+        const [attemptSnapshot, progressSnapshot, parentAccessSnapshot, adminLinksSnapshot] = await Promise.all([
           transaction.get(attemptQuery),
           transaction.get(progressCollection),
           transaction.get(parentAccessQuery),
+          transaction.get(adminLinksQuery),
         ]);
         const attempts = attemptSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
         const progress = progressSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
         const entryRef = db.collection("studentEntries").doc(student.code).collection("names").doc(student.name);
-        const adminLinkRef = student.ownerUid
-          ? db.collection("adminStudentLinks").doc(student.ownerUid).collection("students").doc(studentId)
-          : null;
 
         return callback({
           getStudent: () => student,
@@ -99,7 +106,7 @@ export function createFirestoreStudentRepository(db) {
           listProgress: () => progress,
           deactivate({ progress: nextProgress }) {
             transaction.update(studentRef, { active: false });
-            transaction.update(entryRef, { active: false });
+            transaction.set(entryRef, { active: false, studentId }, { merge: true });
             for (const item of nextProgress) {
               const { id, ...value } = item;
               transaction.set(progressCollection.doc(id), value);
@@ -109,7 +116,11 @@ export function createFirestoreStudentRepository(db) {
             transaction.delete(studentRef);
             transaction.delete(entryRef);
             for (const item of progressSnapshot.docs) transaction.delete(item.ref);
-            if (adminLinkRef) transaction.delete(adminLinkRef);
+            for (const linkDocument of adminLinksSnapshot.docs) {
+              if (isExactAdminStudentLink(linkDocument.ref, studentId)) {
+                transaction.delete(linkDocument.ref);
+              }
+            }
             for (const accessDocument of parentAccessSnapshot.docs) {
               const access = accessDocument.data();
               const remainingStudentIds = (access.studentIds ?? [])

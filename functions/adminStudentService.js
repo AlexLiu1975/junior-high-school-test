@@ -20,14 +20,11 @@ function requireStudentId(input) {
 }
 
 export async function removeOrDeactivateStudent({ repository, auth, input }) {
-  const admin = requireAdminAuth(auth);
+  requireAdminAuth(auth);
   const studentId = requireStudentId(input);
   return repository.runAdminStudentTransaction(studentId, async (operation) => {
     const student = await operation.getStudent();
     if (!student) return { status: "deleted" };
-    if (student.ownerUid !== admin.uid || student.ownerType !== "admin") {
-      throw new Error("student-not-owned");
-    }
     const [attempts, progress] = await Promise.all([
       operation.listAttempts(),
       operation.listProgress(),

@@ -190,16 +190,17 @@ export async function createAdminStudent(studentName) {
 }
 
 export async function listAdminStudents() {
-  const admin = requireAdmin();
-  const links = await getDocs(
-    collection(teacherDb, "adminStudentLinks", admin.uid, "students"),
-  );
-  const snapshots = await Promise.all(
-    links.docs.map((link) => getDoc(doc(teacherDb, "students", link.id))),
-  );
-  return snapshots
-    .filter((snapshot) => snapshot.exists())
-    .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
+  requireAdmin();
+  const snapshot = await getDocs(collection(teacherDb, "students"));
+  return snapshot.docs.map((student) => {
+    const data = student.data();
+    return {
+      id: student.id,
+      name: data.name,
+      code: data.code,
+      active: data.active === true,
+    };
+  });
 }
 
 export async function listAttemptsForStudentIds(studentIds) {

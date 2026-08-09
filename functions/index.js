@@ -41,7 +41,6 @@ const CALLABLE_ERROR_CODES = new Map([
   ["progress-conflict", "aborted"],
   ["admin-required", "permission-denied"],
   ["invalid-student-id", "invalid-argument"],
-  ["student-not-owned", "permission-denied"],
 ]);
 
 export function toCallableError(error) {

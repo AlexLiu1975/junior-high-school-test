@@ -46,6 +46,12 @@ if (emulatorAvailable) {
         active: true,
         studentId: "student-1",
       });
+      await setDoc(doc(db, "students/student-1"), {
+        name: "王小明",
+        code: "20260726-001",
+        active: true,
+        requestUid: "parent-uid",
+      });
       await setDoc(doc(db, "students/admin-student-1"), {
         name: "王小明",
         code: "20260801-001",
@@ -237,6 +243,24 @@ rulesTest("record reads obey pending, teacher, and parent scopes", async () => {
   await assertFails(
     getDocs(query(collection(parentDb, "quizAttempts"), where("studentId", "==", "student-2"))),
   );
+});
+
+rulesTest("only the administrator can list the complete student collection", async () => {
+  const adminDb = environment
+    .authenticatedContext("admin-uid", auth("admin-uid", "beyle931224@gmail.com"))
+    .firestore();
+  const teacherDb = environment
+    .authenticatedContext("teacher-uid", auth("teacher-uid", "teacher@example.com"))
+    .firestore();
+  const parentDb = environment
+    .authenticatedContext("parent-uid", auth("parent-uid", "parent@example.com"))
+    .firestore();
+
+  await assertSucceeds(getDocs(collection(adminDb, "students")));
+  await assertFails(getDocs(collection(teacherDb, "students")));
+  await assertFails(getDocs(collection(parentDb, "students")));
+  await assertSucceeds(getDoc(doc(teacherDb, "students/student-1")));
+  await assertSucceeds(getDoc(doc(parentDb, "students/student-1")));
 });
 
 rulesTest("only verified administrator may approve access", async () => {

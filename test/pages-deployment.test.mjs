@@ -69,3 +69,18 @@ test("homepage and quiz HTML load their dedicated React entries", async () => {
   assert.match(quizHtml, /src\/main\.jsx/);
   assert.match(quizHtml, /<title>學生試卷選單<\/title>/);
 });
+
+test("Firebase config declares the collection-group index used for safe link removal", async () => {
+  const [firebaseConfig, indexes] = await Promise.all([
+    readFile(new URL("../firebase.json", import.meta.url), "utf8").then(JSON.parse),
+    readFile(new URL("../firestore.indexes.json", import.meta.url), "utf8").then(JSON.parse),
+  ]);
+  assert.equal(firebaseConfig.firestore.indexes, "firestore.indexes.json");
+  assert.equal(
+    indexes.fieldOverrides.some((item) =>
+      item.collectionGroup === "students"
+      && item.fieldPath === "studentId"
+      && item.indexes.some((index) => index.queryScope === "COLLECTION_GROUP" && index.order === "ASCENDING")),
+    true,
+  );
+});

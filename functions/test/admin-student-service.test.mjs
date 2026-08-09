@@ -95,6 +95,33 @@ test("any result type deactivates and preserves immutable history while clearing
   }
 });
 
+test("global admin deactivates a parent-created student without owner fields", async () => {
+  const repository = memoryRepository({
+    attempts: [{ id: "a1", studentId: "student-1", resultType: "score" }],
+    student: { ownerUid: undefined, ownerType: undefined, requestUid: "parent-uid" },
+  });
+  const result = await removeOrDeactivateStudent({
+    repository, auth: ADMIN_AUTH, input: { studentId: "student-1" },
+  });
+  assert.deepEqual(result, { status: "deactivated" });
+  assert.equal(repository.state.student.active, false);
+  assert.equal(repository.state.parentAccess, true);
+  assert.equal(repository.state.adminLink, true);
+  assert.equal(repository.state.progress[0].activeAttempt, null);
+});
+
+test("global admin permanently deletes a legacy student without ownership metadata", async () => {
+  const repository = memoryRepository({
+    attempts: [],
+    student: { ownerUid: undefined, ownerType: undefined, requestUid: undefined },
+  });
+  const result = await removeOrDeactivateStudent({
+    repository, auth: ADMIN_AUTH, input: { studentId: "student-1" },
+  });
+  assert.deepEqual(result, { status: "deleted" });
+  assert.equal(repository.state.student, null);
+});
+
 test("no attempt deletes exact access records and progress without recycling counter", async () => {
   const repository = memoryRepository({ attempts: [] });
   const result = await removeOrDeactivateStudent({
@@ -109,7 +136,7 @@ test("no attempt deletes exact access records and progress without recycling cou
   assert.equal(repository.state.counter, 99);
 });
 
-test("requires a valid target and owned student", async () => {
+test("requires a valid target while global admin does not depend on caller role or mode", async () => {
   await assert.rejects(
     removeOrDeactivateStudent({ repository: memoryRepository(), auth: ADMIN_AUTH, input: { studentId: "../x" } }),
     /invalid-student-id/,
@@ -120,14 +147,6 @@ test("requires a valid target and owned student", async () => {
       input: { studentId: "student-1", ownerUid: "admin-uid" },
     }),
     /invalid-student-id/,
-  );
-  await assert.rejects(
-    removeOrDeactivateStudent({
-      repository: memoryRepository({ student: { ownerUid: "another-admin" } }),
-      auth: ADMIN_AUTH,
-      input: { studentId: "student-1" },
-    }),
-    /student-not-owned/,
   );
 });
 

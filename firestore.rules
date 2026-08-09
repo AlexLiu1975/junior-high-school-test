@@ -96,7 +96,8 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      allow read: if isAdmin() || isTeacher() || parentCanRead(studentId);
+      allow get: if isAdmin() || isTeacher() || parentCanRead(studentId);
+      allow list: if isAdmin();
       allow write: if isAdmin();
     }
 

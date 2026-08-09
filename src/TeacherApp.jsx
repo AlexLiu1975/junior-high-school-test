@@ -88,7 +88,7 @@ export default function TeacherApp() {
     } catch (caught) {
       console.error(caught);
       if (adminLoadVersion.current === version) {
-        setAdminDataError("無法載入我的學生或測驗紀錄，請稍後重試。");
+        setAdminDataError("無法載入學生或測驗紀錄，請稍後重試。");
       }
     } finally {
       if (adminLoadVersion.current === version) {
@@ -404,7 +404,7 @@ export default function TeacherApp() {
                   onClick={() => setAdminMode("students")}
                   type="button"
                 >
-                  我的學生
+                  學生管理
                 </button>
               </div>
             </div>
@@ -413,7 +413,7 @@ export default function TeacherApp() {
             {portalState === "admin"
               ? adminMode === "manage"
                 ? "管理員模式：可查看全部測驗紀錄。"
-                : "我的學生：只顯示您建立的學生與測驗紀錄。"
+                : "學生管理：顯示全部學生與測驗紀錄，可安全刪除或停用。"
               : portalState === "teacher"
                 ? "教師權限：可查看全部測驗紀錄。"
                 : "家長權限：只顯示已核准學生的紀錄。"}
@@ -528,7 +528,7 @@ export default function TeacherApp() {
                       <td className="whitespace-nowrap p-3 font-semibold">{formatAttemptResult(attempt)}</td>
                     </tr>
                   ))}
-                  {viewDataLoading && <tr><td className="p-7 text-center text-slate-500" colSpan={portalState === "admin" ? 6 : 5}>正在載入我的學生與測驗紀錄…</td></tr>}
+                  {viewDataLoading && <tr><td className="p-7 text-center text-slate-500" colSpan={portalState === "admin" ? 6 : 5}>正在載入學生與測驗紀錄…</td></tr>}
                   {!viewDataLoading && viewDataError && <tr><td className="p-7 text-center text-slate-500" colSpan={portalState === "admin" ? 6 : 5}>測驗紀錄載入未完成。</td></tr>}
                   {!viewDataLoading && !viewDataError && visibleAttempts.length === 0 && <tr><td className="p-7 text-center text-slate-500" colSpan={portalState === "admin" ? 6 : 5}>目前沒有符合的測驗紀錄。</td></tr>}
                 </tbody>
