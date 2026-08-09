@@ -600,6 +600,11 @@ test("registered English attempts use trusted catalog metadata and fixed score f
     now: NOW,
   });
   const expectedWrongIds = ENGLISH_REVIEW_2.questions.slice(1).map(({ id }) => id);
+  const expectedReview = ENGLISH_REVIEW_2.questions.slice(1).map((question) => ({
+    questionId: question.id,
+    correctOptionId: question.options.find(({ correct }) => correct).id,
+    explanation: question.explanation,
+  }));
 
   assert.deepEqual(result, {
     attemptId: input.attemptId,
@@ -618,8 +623,10 @@ test("registered English attempts use trusted catalog metadata and fixed score f
     correctCount: 1,
     wrongCount: 39,
     wrongIds: expectedWrongIds,
+    review: expectedReview,
   });
   assert.deepEqual(repository.attempts.get(input.attemptId).wrongIds, expectedWrongIds);
+  assert.equal(Object.hasOwn(repository.attempts.get(input.attemptId), "review"), false);
   assert.equal(Object.hasOwn(result, "answers"), false);
   assert.equal(Object.hasOwn(result, "correctOptionIds"), false);
   assert.equal(Object.hasOwn(result, "completedCount"), false);
@@ -662,6 +669,28 @@ test("new English submissions reject caller-supplied wrongIds", async () => {
     /invalid-submission/,
   );
   assert.equal(repository.attempts.size, 0);
+});
+
+test("callers cannot inject review data and placement results never expose review", async () => {
+  const repository = createMemoryStudentRepository();
+  await assert.rejects(
+    submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input: { ...PERFECT_INPUT, review: [{ questionId: "q1", correctOptionId: "q1-o1" }] },
+      maskedIp: "203.0.113.xxx",
+      now: NOW,
+    }),
+    /invalid-submission/,
+  );
+  const placement = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: VALID_PERIODIC_INPUT,
+    maskedIp: "203.0.113.xxx",
+    now: NOW,
+  });
+  assert.equal(Object.hasOwn(placement, "review"), false);
 });
 
 test("a stored score retry rejects wrong IDs outside the registered question set", async () => {

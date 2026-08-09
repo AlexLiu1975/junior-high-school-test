@@ -1,6 +1,4 @@
-import { prepareQuiz, scoreQuiz } from "./quizRandomization.js";
-
-const LETTERS = ["A", "B", "C", "D"];
+import { prepareQuiz } from "./quizRandomization.js";
 
 export const EMPTY_QUIZ_MESSAGE = "目前沒有可用的題目。";
 
@@ -56,36 +54,5 @@ export function createQuizAttemptLifecycle() {
       return questions[index];
     },
 
-    resultsFor(answers) {
-      const { correctCount, wrongIds } = scoreQuiz(questions, answers);
-      const wrongAnswers = questions
-        .map((question, index) => ({ question, index }))
-        .filter(({ question }) => wrongIds.includes(question.id))
-        .map(({ question, index }) => {
-          const selectedOptionId = answers[question.id];
-          const selectedIndex = question.options.findIndex(
-            ({ id }) => id === selectedOptionId,
-          );
-          const selectedOption = question.options[selectedIndex];
-          const correctIndex = question.options.findIndex(
-            ({ isCorrect }) => isCorrect,
-          );
-
-          return {
-            id: question.id,
-            attemptPosition: index + 1,
-            text: question.text,
-            selectedAnswer: selectedOption
-              ? { letter: LETTERS[selectedIndex], text: selectedOption.text }
-              : null,
-            correctAnswer: {
-              letter: LETTERS[correctIndex],
-              text: question.options[correctIndex].text,
-            },
-          };
-        });
-
-      return { correctCount, wrongIds, wrongAnswers };
-    },
   };
 }

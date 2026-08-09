@@ -1,24 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
-import {
-  isAnswerCorrect,
-} from "./quizRandomization";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
-import {
-  QUIZ_DEFINITION,
-} from "../functions/shared/biologyDefinition.js";
+import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
 
 const LETTERS = ["A", "B", "C", "D"];
-const INTERVALS = [1, 2, 4, 7, 15, 30]; // 艾賓浩斯簡化複習間隔（天）
-const fmtDate = (d) =>
-  `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-
-const addDays = (base, days) => {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d;
-};
-
 const daysUntil = (dateStr) => {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -72,6 +57,14 @@ export default function BiologyQuiz({ progress, sync }) {
             : null,
         );
         setView("results");
+        if (!refreshRequired) {
+          try {
+            sync.queueSave({ activeAttempt: null, reviewProgress: recovered.reviewProgress });
+          } catch (error) {
+            console.error("Recovered biology review progress could not be queued", error);
+            setSaveError("完成紀錄已保存；複習進度尚未同步，請重新整理頁面。");
+          }
+        }
       } catch (error) {
         console.error("Recovered biology submission could not be displayed", error);
         setSaveError("完成紀錄已保存，但結果畫面無法還原；請重新整理頁面。");
@@ -147,43 +140,28 @@ export default function BiologyQuiz({ progress, sync }) {
     try {
       setSaveError(null);
       const attemptSnapshot = structuredClone(attempt);
-      const today = new Date();
-      const nextReviewProgress = { ...reviewProgress };
-
-      attemptSnapshot.questions.forEach((q) => {
-        const wasCorrect = isAnswerCorrect(q, attemptSnapshot.answers[q.id]);
-
-        const prevEntry = nextReviewProgress[q.id] || { errorCount: 0, stage: -1 };
-        if (wasCorrect) {
-          const stage = Math.min(prevEntry.stage + 1, INTERVALS.length - 1);
-          nextReviewProgress[q.id] = {
-            errorCount: prevEntry.errorCount,
-            stage,
-            lastResult: "correct",
-            lastAttempt: fmtDate(today),
-            nextReview: fmtDate(addDays(today, INTERVALS[stage])),
-          };
-        } else {
-          nextReviewProgress[q.id] = {
-            errorCount: prevEntry.errorCount + 1,
-            stage: 0,
-            lastResult: "wrong",
-            lastAttempt: fmtDate(today),
-            nextReview: fmtDate(addDays(today, INTERVALS[0])),
-          };
-        }
-      });
-
-      const submissionState = { ...attemptSnapshot, reviewProgress: nextReviewProgress };
-      saveAttempt(attemptSnapshot, nextReviewProgress);
+      saveAttempt(attemptSnapshot, reviewProgress);
       await sync.flush();
       const result = biologyQuizAdapter.renderResult(
-        await sync.submit(biologyQuizAdapter.buildSubmission(submissionState)),
+        await sync.submit(biologyQuizAdapter.buildSubmission({
+          ...attemptSnapshot,
+          reviewProgress,
+        })),
       );
+      const nextReviewProgress = biologyQuizAdapter.updateReviewProgress({
+        previous: reviewProgress,
+        result,
+      });
       setAttempt(attemptSnapshot);
       setReviewProgress(nextReviewProgress);
       setConfirmedResult(result);
       setView("results");
+      try {
+        sync.queueSave({ activeAttempt: null, reviewProgress: nextReviewProgress });
+      } catch (error) {
+        console.error("Biology review progress could not be queued", error);
+        setSaveError("完成紀錄已保存；複習進度尚未同步，請重新整理頁面。");
+      }
     } catch (error) {
       console.error("Biology submission failed", error);
       setSaveError("作答紀錄尚未送出，資料已保留；請檢查網路後重試。");
@@ -214,15 +192,14 @@ export default function BiologyQuiz({ progress, sync }) {
     }
   };
 
-  const attemptResults =
-    attempt?.questions.length > 0
-      ? attemptLifecycleRef.current.resultsFor(attempt.answers)
-      : { correctCount: 0, wrongIds: [], wrongAnswers: [] };
+  const wrongAnswers = attempt && confirmedResult
+    ? biologyQuizAdapter.buildWrongAnswerDisplay({ attempt, result: confirmedResult })
+    : [];
 
   const reviewList = Object.entries(reviewProgress)
     .filter(([, v]) => v.errorCount > 0)
     .map(([id, v]) => {
-      const q = QUIZ_DEFINITION.questions.find((qq) => qq.id === id);
+      const q = BIOLOGY_QUIZ_CONTENT.questions.find((qq) => qq.id === id);
       return { id, text: q ? q.text : "", ...v, daysLeft: daysUntil(v.nextReview) };
     })
     .sort((a, b) => new Date(a.nextReview) - new Date(b.nextReview));
@@ -314,7 +291,7 @@ export default function BiologyQuiz({ progress, sync }) {
             <ResultsView
               score={confirmedResult.correctCount}
               total={attempt.questions.length}
-              wrongAnswers={attemptResults.wrongAnswers}
+              wrongAnswers={wrongAnswers}
               reviewList={reviewList}
               actionsDisabled={finishing || clearing}
               onRetry={startQuiz}

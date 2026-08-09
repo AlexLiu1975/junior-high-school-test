@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ENGLISH_REVIEW_2 } from "../functions/shared/englishReview2Definition.js";
+import { ENGLISH_REVIEW_2_CONTENT } from "./englishReview2Content.js";
 import { EnglishQuestionFigure } from "./EnglishQuestionFigure.jsx";
 import { englishReview2Adapter } from "./englishReview2Adapter.js";
 
@@ -18,14 +18,17 @@ function formatElapsed(seconds) {
 function ReadingBlock({ readingId }) {
   return (
     <div className="mb-4 rounded-r-lg border-l-4 border-[#2b5876] bg-slate-100 px-5 py-4 text-sm leading-7">
-      <pre className="whitespace-pre-wrap font-sans">{ENGLISH_REVIEW_2.readings[readingId]}</pre>
+      <pre className="whitespace-pre-wrap font-sans">{ENGLISH_REVIEW_2_CONTENT.readings[readingId]}</pre>
     </div>
   );
 }
 
 function QuestionCard({ question, answer, confirmedResult, disabled, onAnswer }) {
-  const isConfirmed = Array.isArray(confirmedResult?.wrongIds);
+  const isConfirmed = Array.isArray(confirmedResult?.review);
   const isWrong = isConfirmed && confirmedResult.wrongIds.includes(question.id);
+  const review = isWrong
+    ? confirmedResult.review.find(({ questionId }) => questionId === question.id)
+    : null;
   return (
     <article
       id={`english-question-${question.id}`}
@@ -42,8 +45,8 @@ function QuestionCard({ question, answer, confirmedResult, disabled, onAnswer })
       <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-2.5">
         {question.options.map((option) => {
           const selected = answer === option.id;
-          const confirmedCorrect = isConfirmed && option.correct;
-          const confirmedWrong = isConfirmed && selected && !option.correct;
+          const confirmedCorrect = review?.correctOptionId === option.id;
+          const confirmedWrong = isWrong && selected && !confirmedCorrect;
           return (
             <button
               key={option.id}
@@ -66,8 +69,8 @@ function QuestionCard({ question, answer, confirmedResult, disabled, onAnswer })
           );
         })}
       </div>
-      {isConfirmed && (
-        <p className="mt-3 rounded-md bg-white/70 p-3 text-sm leading-6">{question.explanation}</p>
+      {review && (
+        <p className="mt-3 rounded-md bg-white/70 p-3 text-sm leading-6">{review.explanation}</p>
       )}
     </article>
   );
@@ -140,8 +143,8 @@ export default function EnglishReview2Quiz({ progress, sync }) {
   }, [attempt, sync]);
 
   const questionsBySection = useMemo(() => ({
-    1: ENGLISH_REVIEW_2.questions.filter(({ section }) => section === 1),
-    2: ENGLISH_REVIEW_2.questions.filter(({ section }) => section === 2),
+    1: ENGLISH_REVIEW_2_CONTENT.questions.filter(({ section }) => section === 1),
+    2: ENGLISH_REVIEW_2_CONTENT.questions.filter(({ section }) => section === 2),
   }), []);
 
   const selectAnswer = (questionId, optionId) => {

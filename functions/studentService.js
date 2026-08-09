@@ -3,6 +3,7 @@ import {
   getQuizDefinition,
   validateQuizSubmission,
 } from "./shared/quizRegistry.js";
+import { buildReviewPayload } from "./shared/reviewPayload.js";
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
 const PROGRESS_INPUT_FIELDS = new Set([
@@ -233,6 +234,7 @@ function projectStoredScore(attemptId, stored, definition, mode) {
     wrongCount: stored.wrongCount,
   };
   if (hasWrongIds) projected.wrongIds = [...stored.wrongIds];
+  if (hasWrongIds) projected.review = buildReviewPayload(definition, stored.wrongIds);
   return projected;
 }
 
@@ -355,6 +357,12 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
       transaction,
     );
     await repository.setProgress(student.studentId, definition.id, progress, transaction);
-    return { attemptId, ...attempt };
+    return {
+      attemptId,
+      ...attempt,
+      ...(result.resultType === "score"
+        ? { review: buildReviewPayload(definition, result.wrongIds) }
+        : {}),
+    };
   });
 }

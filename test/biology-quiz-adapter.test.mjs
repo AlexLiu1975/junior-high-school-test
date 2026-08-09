@@ -106,9 +106,23 @@ test("biology uses only the server-confirmed score result", () => {
       score: 85,
       correctCount: 17,
       wrongCount: 3,
+      review: [
+        { questionId: "q1", correctOptionId: "q1-o3" },
+        { questionId: "q2", correctOptionId: "q2-o3" },
+        { questionId: "q3", correctOptionId: "q3-o1" },
+      ],
       ignored: "server transport detail",
     }),
-    { score: 85, correctCount: 17, wrongCount: 3 },
+    {
+      score: 85,
+      correctCount: 17,
+      wrongCount: 3,
+      review: [
+        { questionId: "q1", correctOptionId: "q1-o3" },
+        { questionId: "q2", correctOptionId: "q2-o3" },
+        { questionId: "q3", correctOptionId: "q3-o1" },
+      ],
+    },
   );
   assert.throws(
     () => biologyQuizAdapter.renderResult({ score: 100, correctCount: 20, wrongCount: 0 }),
@@ -133,13 +147,24 @@ test("biology converts an online-recovered submission into the confirmed result 
         },
       },
     },
-    result: { resultType: "score", score: 80, correctCount: 16, wrongCount: 4 },
+    result: {
+      resultType: "score",
+      score: 80,
+      correctCount: 16,
+      wrongCount: 4,
+      review: [
+        { questionId: "q1", correctOptionId: "q1-o3" },
+        { questionId: "q2", correctOptionId: "q2-o3" },
+        { questionId: "q3", correctOptionId: "q3-o1" },
+        { questionId: "q20", correctOptionId: "q20-o4" },
+      ],
+    },
   });
 
   assert.equal(recovered.attempt.answers.q20, "q20-o1");
   assert.equal(recovered.attempt.currentQuestionIndex, savedAttempt.currentQuestionIndex);
-  assert.equal(recovered.reviewProgress.q20.errorCount, 2);
-  assert.deepEqual(recovered.result, { score: 80, correctCount: 16, wrongCount: 4 });
+  assert.equal(recovered.reviewProgress.q20.errorCount, 3);
+  assert.equal(recovered.result.review.length, 4);
 });
 
 test("biology creates a new attempt with stable serializable orders", () => {
@@ -152,4 +177,20 @@ test("biology creates a new attempt with stable serializable orders", () => {
   assert.equal(Object.keys(first.optionOrder).length, QUIZ_DEFINITION.questions.length);
   assert.deepEqual(first.answers, {});
   assert.equal(first.currentQuestionIndex, 0);
+});
+
+test("biology rejects malformed or caller-shaped review payloads with one stable error", () => {
+  for (const review of [
+    [null],
+    [{ questionId: "q1", correctOptionId: "q1-o3", explanation: "not allowed" }],
+    [{ questionId: "q1", correctOptionId: "q2-o1" }],
+  ]) {
+    assert.throws(() => biologyQuizAdapter.renderResult({
+      resultType: "score",
+      score: 95,
+      correctCount: 19,
+      wrongCount: 1,
+      review,
+    }), /invalid-biology-result/);
+  }
 });

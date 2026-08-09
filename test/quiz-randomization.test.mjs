@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  isAnswerCorrect,
   prepareQuiz,
-  scoreQuiz,
   shuffleCopy,
 } from "../src/quizRandomization.js";
 
@@ -13,10 +11,10 @@ const questions = [
     n: 1,
     text: "第一題",
     options: [
-      { id: "q1-o1", text: "甲", correct: false },
-      { id: "q1-o2", text: "乙", correct: true },
-      { id: "q1-o3", text: "丙", correct: false },
-      { id: "q1-o4", text: "丁", correct: false },
+      { id: "q1-o1", text: "甲" },
+      { id: "q1-o2", text: "乙" },
+      { id: "q1-o3", text: "丙" },
+      { id: "q1-o4", text: "丁" },
     ],
   },
   {
@@ -24,10 +22,10 @@ const questions = [
     n: 2,
     text: "第二題",
     options: [
-      { id: "q2-o1", text: "戊", correct: false },
-      { id: "q2-o2", text: "己", correct: false },
-      { id: "q2-o3", text: "庚", correct: false },
-      { id: "q2-o4", text: "辛", correct: true },
+      { id: "q2-o1", text: "戊" },
+      { id: "q2-o2", text: "己" },
+      { id: "q2-o3", text: "庚" },
+      { id: "q2-o4", text: "辛" },
     ],
   },
 ];
@@ -57,11 +55,8 @@ test("prepareQuiz preserves every question and option exactly once", () => {
       preparedQuestion.options.map(({ id }) => id).sort(),
       source.options.map(({ id }) => id).sort(),
     );
-    assert.equal(
-      preparedQuestion.options.filter(({ isCorrect }) => isCorrect).length,
-      1,
-    );
     assert.equal("correct" in preparedQuestion, false);
+    assert.equal(preparedQuestion.options.some((option) => "isCorrect" in option), false);
     assert.equal(
       preparedQuestion.options.every((option) => typeof option.id === "string"),
       true,
@@ -85,33 +80,11 @@ test("prepareQuiz deterministically shuffles every question's options", () => {
   });
 });
 
-test("prepared correctness survives option randomization and scores by stable id", () => {
+test("prepared browser questions never acquire local correctness metadata", () => {
   const prepared = prepareQuiz(questions, alwaysZero);
-  const correctAnswers = Object.fromEntries(
-    prepared.map((question) => [
-      question.id,
-      question.options.find(({ isCorrect }) => isCorrect).id,
-    ]),
-  );
-  assert.equal(
-    prepared.every((question) =>
-      isAnswerCorrect(question, correctAnswers[question.id]),
-    ),
-    true,
-  );
-  assert.deepEqual(scoreQuiz(prepared, correctAnswers), {
-    correctCount: 2,
-    wrongIds: [],
-  });
-
-  const oneWrong = {
-    ...correctAnswers,
-    q1: "q1-o1",
-  };
-  assert.deepEqual(scoreQuiz(prepared, oneWrong), {
-    correctCount: 1,
-    wrongIds: ["q1"],
-  });
+  assert.equal(prepared.every((question) => question.options.every((option) => (
+    Object.keys(option).sort().join(",") === "id,text"
+  ))), true);
 });
 
 test("prepareQuiz rejects an empty question bank", () => {

@@ -95,23 +95,10 @@ test("a restored prepared quiz keeps its saved navigation order", () => {
   );
 });
 
-test("results map letters and text from the exact viewed attempt", () => {
+test("the lifecycle exposes no pre-submission scoring method", () => {
   const lifecycle = createQuizAttemptLifecycle();
   startAttempt(lifecycle, alwaysZero);
-
-  assert.deepEqual(lifecycle.resultsFor({ q1: "q1-o2", q2: "q2-o2" }), {
-    correctCount: 1,
-    wrongIds: ["q2"],
-    wrongAnswers: [
-      {
-        id: "q2",
-        attemptPosition: 1,
-        text: "第二題",
-        selectedAnswer: { letter: "A", text: "己" },
-        correctAnswer: { letter: "C", text: "辛" },
-      },
-    ],
-  });
+  assert.equal(Object.hasOwn(lifecycle, "resultsFor"), false);
 });
 
 test("an empty question bank returns the exact start error", () => {

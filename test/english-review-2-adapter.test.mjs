@@ -58,12 +58,14 @@ test("English result accepts only a server-confirmed score and valid wrong IDs",
     correctCount: 39,
     wrongCount: 1,
     wrongIds: ["e02"],
+    review: [{ questionId: "e02", correctOptionId: "e02-o2", explanation: "server review" }],
     ignored: "transport detail",
   }), {
     score: 97,
     correctCount: 39,
     wrongCount: 1,
     wrongIds: ["e02"],
+    review: [{ questionId: "e02", correctOptionId: "e02-o2", explanation: "server review" }],
   });
 
   for (const wrongIds of [undefined, ["e99"], ["e02", "e02"], ["e02", "e03"]]) {
@@ -74,6 +76,7 @@ test("English result accepts only a server-confirmed score and valid wrong IDs",
         correctCount: 39,
         wrongCount: 1,
         wrongIds,
+        review: [{ questionId: "e02", correctOptionId: "e02-o2", explanation: "server review" }],
       }),
       /invalid-english-result/,
     );
@@ -108,10 +111,31 @@ test("online recovery restores the submitted answers and trusted result", () => 
       correctCount: 38,
       wrongCount: 2,
       wrongIds: ["e02", "e03"],
+      review: [
+        { questionId: "e02", correctOptionId: "e02-o2", explanation: "server review 2" },
+        { questionId: "e03", correctOptionId: "e03-o2", explanation: "server review 3" },
+      ],
     },
   });
 
   assert.deepEqual(recovered.attempt.answers, { e01: "e01-o3", e02: "e02-o1" });
   assert.equal(recovered.attempt.lastAnsweredId, "e01");
   assert.deepEqual(recovered.result.wrongIds, ["e02", "e03"]);
+});
+
+test("English rejects malformed review items with the stable result error", () => {
+  for (const review of [
+    [null],
+    [{ questionId: "e02", correctOptionId: "e02-o2", explanation: "ok", extra: true }],
+    [{ questionId: "e02", correctOptionId: "e03-o1", explanation: "wrong question" }],
+  ]) {
+    assert.throws(() => englishReview2Adapter.renderResult({
+      resultType: "score",
+      score: 97,
+      correctCount: 39,
+      wrongCount: 1,
+      wrongIds: ["e02"],
+      review,
+    }), /invalid-english-result/);
+  }
 });

@@ -1,8 +1,8 @@
-import { ENGLISH_REVIEW_2 } from "../functions/shared/englishReview2Definition.js";
+import { ENGLISH_REVIEW_2_CONTENT } from "./englishReview2Content.js";
 
-const questionOrder = ENGLISH_REVIEW_2.questions.map(({ id }) => id);
+const questionOrder = ENGLISH_REVIEW_2_CONTENT.questions.map(({ id }) => id);
 const optionOrder = Object.fromEntries(
-  ENGLISH_REVIEW_2.questions.map((question) => [
+  ENGLISH_REVIEW_2_CONTENT.questions.map((question) => [
     question.id,
     question.options.map(({ id }) => id),
   ]),
@@ -124,6 +124,7 @@ export const englishReview2Adapter = Object.freeze({
 
   renderResult(result) {
     const hasWrongIds = Object.hasOwn(result ?? {}, "wrongIds");
+    const hasReview = Object.hasOwn(result ?? {}, "review");
     if (result?.resultType !== "score"
       || !Number.isFinite(result.score)
       || result.score < 0
@@ -138,10 +139,24 @@ export const englishReview2Adapter = Object.freeze({
         || result.wrongIds.length !== result.wrongCount
         || new Set(result.wrongIds).size !== result.wrongIds.length
         || result.wrongIds.some((questionId) => !optionIdsByQuestion.has(questionId))
+      ))
+      || (hasReview && (
+        !Array.isArray(result.review)
+        || result.review.length !== result.wrongCount
+        || result.review.some((item) => (
+          item === null
+          || typeof item !== "object"
+          || Object.keys(item).some((key) => !["questionId", "correctOptionId", "explanation"].includes(key))
+          || !optionIdsByQuestion.get(item.questionId)?.has(item.correctOptionId)
+          || typeof item.explanation !== "string"
+          || item.explanation.length === 0
+        ))
+        || new Set(result.review.map((item) => item.questionId)).size !== result.review.length
+        || (hasWrongIds && result.review.some((item) => !result.wrongIds.includes(item.questionId)))
       ))) {
       throw new Error("invalid-english-result");
     }
-    if (!hasWrongIds) {
+    if (!hasWrongIds || !hasReview) {
       return {
         score: result.score,
         correctCount: result.correctCount,
@@ -155,6 +170,7 @@ export const englishReview2Adapter = Object.freeze({
       correctCount: result.correctCount,
       wrongCount: result.wrongCount,
       wrongIds: [...result.wrongIds],
+      review: result.review.map((item) => ({ ...item })),
     };
   },
 });
