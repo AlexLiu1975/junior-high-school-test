@@ -54,14 +54,14 @@ test("only a complete correct board creates a placement result", () => {
   );
 
   assert.deepEqual(
-    validatePeriodicSubmission({ placements, errorCount: 9, durationSeconds: 755 }),
+    validatePeriodicSubmission(PERIODIC_TABLE_QUIZ, { placements, errorCount: 9, durationSeconds: 755 }),
     {
       resultType: "placement", completedCount: 118, totalItems: 118, errorCount: 9,
       durationSeconds: 755, completed: true,
     },
   );
   assert.throws(
-    () => validatePeriodicSubmission({ placements: {}, errorCount: 0, durationSeconds: 1 }),
+    () => validatePeriodicSubmission(PERIODIC_TABLE_QUIZ, { placements: {}, errorCount: 0, durationSeconds: 1 }),
     /invalid-submission/,
   );
 });
@@ -84,8 +84,37 @@ test("submission validation rejects extra, duplicated, wrong, and out-of-range f
     { placements, errorCount: 1.5, durationSeconds: 1 },
     { placements, errorCount: 0, durationSeconds: 1, score: 100 },
   ]) {
-    assert.throws(() => validatePeriodicSubmission(input), /invalid-submission/);
+    assert.throws(() => validatePeriodicSubmission(PERIODIC_TABLE_QUIZ, input), /invalid-submission/);
   }
+});
+
+test("placement validation uses the supplied definition rather than the global periodic table", () => {
+  const synthetic = {
+    id: "synthetic-placement",
+    version: 1,
+    kind: "placement",
+    elements: [
+      { id: "synthetic-a", targetId: "target-a" },
+      { id: "synthetic-b", targetId: "target-b" },
+    ],
+  };
+  assert.deepEqual(validatePeriodicSubmission(synthetic, {
+    placements: { "synthetic-a": "target-a", "synthetic-b": "target-b" },
+    errorCount: 1,
+    durationSeconds: 2,
+  }), {
+    resultType: "placement",
+    completedCount: 2,
+    totalItems: 2,
+    errorCount: 1,
+    durationSeconds: 2,
+    completed: true,
+  });
+  assert.throws(() => validatePeriodicSubmission(synthetic, {
+    placements: { "element-001": "main-r1-c1", "element-002": "main-r1-c18" },
+    errorCount: 0,
+    durationSeconds: 1,
+  }), /invalid-submission/);
 });
 
 test("a new periodic attempt shuffles a copy with Fisher-Yates and resets progress", () => {

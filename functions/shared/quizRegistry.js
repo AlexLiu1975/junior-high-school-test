@@ -91,7 +91,7 @@ export function validateQuizSubmission(definition, input) {
   }
   if (definition?.kind === "placement") {
     if (!hasOnlyKeys(input, PLACEMENT_FIELDS)) invalidSubmission();
-    return validatePeriodicSubmission({
+    return validatePeriodicSubmission(definition, {
       placements: input.placements,
       errorCount: input.errorCount,
       durationSeconds: input.durationSeconds,

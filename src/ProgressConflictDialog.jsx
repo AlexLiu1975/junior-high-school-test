@@ -10,11 +10,15 @@ function formatUpdatedAt(updatedAtMs) {
 function progressSummary(progress) {
   const answers = progress?.activeAttempt?.answers;
   const placements = progress?.activeAttempt?.placements;
+  const placedElementIds = progress?.activeAttempt?.placedElementIds;
   if (answers && typeof answers === "object") {
     return `已作答 ${Object.keys(answers).length} 題`;
   }
   if (placements && typeof placements === "object") {
     return `已完成 ${Object.keys(placements).length} 個位置`;
+  }
+  if (Array.isArray(placedElementIds)) {
+    return `已完成 ${placedElementIds.length} 個位置`;
   }
   return progress?.activeAttempt ? "有未完成進度" : "尚未開始作答";
 }

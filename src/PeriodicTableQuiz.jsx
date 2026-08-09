@@ -37,7 +37,9 @@ function elapsedAt(attempt, nowMs) {
 function toDomainState(attempt) {
   return {
     elements: PERIODIC_TABLE_QUIZ.elements,
-    pool: attempt.poolOrder.map((id) => elementsById.get(id)),
+    pool: attempt.poolOrder
+      .filter((id) => !Object.hasOwn(attempt.placements, id))
+      .map((id) => elementsById.get(id)),
     placements: attempt.placements,
     errorCount: attempt.errorCount,
     lastAttempt: attempt.lastAttempt,
@@ -50,7 +52,6 @@ function toDomainState(attempt) {
 function fromDomainState(attempt, domainState) {
   return {
     ...attempt,
-    poolOrder: domainState.pool.map(({ id }) => id),
     placements: domainState.placements,
     errorCount: domainState.errorCount,
     lastAttempt: domainState.lastAttempt,
@@ -274,7 +275,7 @@ export default function PeriodicTableQuiz({ progress, sync }) {
     if (domainNext === domainCurrent) return;
     let next = fromDomainState(current, domainNext);
     const correct = domainNext.lastAttempt?.correct === true;
-    if (correct && next.poolOrder.length === 0) {
+    if (correct && Object.keys(next.placements).length === TOTAL) {
       next = fromDomainState(next, pauseTimer(toDomainState(next), nowMs));
     }
     try {
@@ -283,7 +284,7 @@ export default function PeriodicTableQuiz({ progress, sync }) {
       setClockNow(nowMs);
       if (correct) setSelectedId(null);
       setMessage(correct ? "位置正確。" : "位置不正確，元素仍保留在待放區。");
-      if (next.poolOrder.length === 0) void finishCompleteAttempt(next, nowMs);
+      if (Object.keys(next.placements).length === TOTAL) void finishCompleteAttempt(next, nowMs);
     } catch (error) {
       console.error("Periodic placement could not be saved", error);
       setMessage("這次操作尚未同步，請稍後重試。");
@@ -303,10 +304,10 @@ export default function PeriodicTableQuiz({ progress, sync }) {
       updateAttempt(next);
       setClockNow(nowMs);
       setSelectedId(null);
-      if (next.poolOrder.length === 0) {
+      if (Object.keys(next.placements).length === TOTAL) {
         await finishCompleteAttempt(next, nowMs);
       } else {
-        setMessage(`本次已結束並保存進度；目前完成 ${TOTAL - next.poolOrder.length}／${TOTAL}。`);
+        setMessage(`本次已結束並保存進度；目前完成 ${Object.keys(next.placements).length}／${TOTAL}。`);
       }
     } catch (error) {
       console.error("Periodic progress could not be ended", error);
@@ -332,7 +333,10 @@ export default function PeriodicTableQuiz({ progress, sync }) {
     }
   };
 
-  const placedCount = attempt ? TOTAL - attempt.poolOrder.length : 0;
+  const placedCount = attempt ? Object.keys(attempt.placements).length : 0;
+  const remainingPool = attempt
+    ? attempt.poolOrder.filter((id) => !Object.hasOwn(attempt.placements, id))
+    : [];
   const boardDisabled = !attempt || attempt.timerState !== "running" || submitting || Boolean(confirmedResult);
   const displayedElapsed = confirmedResult
     ? confirmedResult.durationSeconds * 1000
@@ -383,10 +387,10 @@ export default function PeriodicTableQuiz({ progress, sync }) {
       </section>
 
       <section className="mt-6 rounded-xl border border-slate-300 bg-white p-4">
-        <h3 className="font-bold">待放元素（{attempt?.poolOrder.length ?? 0}）</h3>
+        <h3 className="font-bold">待放元素（{remainingPool.length}）</h3>
         {!attempt && <p className="mt-3 text-sm text-slate-600">按「開始」後會隨機排列 118 個元素。</p>}
         <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(5rem,1fr))] gap-2">
-          {attempt?.poolOrder.map((id) => {
+          {remainingPool.map((id) => {
             const element = elementsById.get(id);
             const selected = selectedId === id;
             return (

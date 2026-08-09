@@ -1,19 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PERIODIC_TABLE_QUIZ } from "../functions/shared/periodicTableDefinition.js";
+import { normalizeQuizProgress } from "../functions/progressDomain.js";
 import { periodicTableAdapter } from "../src/periodicTableAdapter.js";
 
 const IDS = PERIODIC_TABLE_QUIZ.elements.map(({ id }) => id);
 
 const SAVED_PERIODIC_ATTEMPT = {
   attemptId: "periodic-attempt-1",
-  poolOrder: IDS.slice(2),
-  placements: {
-    [IDS[0]]: PERIODIC_TABLE_QUIZ.elements[0].targetId,
-    [IDS[1]]: PERIODIC_TABLE_QUIZ.elements[1].targetId,
-  },
+  poolOrder: IDS,
+  placedElementIds: [IDS[0], IDS[1]],
   errorCount: 3,
-  elapsedMs: 12_345,
+  accumulatedSeconds: 12,
   timerState: "running",
 };
 
@@ -28,9 +26,12 @@ test("periodic adapter exposes the five shared shell methods", () => {
 test("periodic restore keeps pool order, placed IDs, errors, and paused elapsed time", () => {
   const restored = periodicTableAdapter.restoreAttempt(SAVED_PERIODIC_ATTEMPT, 500_000);
   assert.deepEqual(restored.poolOrder, SAVED_PERIODIC_ATTEMPT.poolOrder);
-  assert.deepEqual(restored.placements, SAVED_PERIODIC_ATTEMPT.placements);
+  assert.deepEqual(restored.placements, {
+    [IDS[0]]: PERIODIC_TABLE_QUIZ.elements[0].targetId,
+    [IDS[1]]: PERIODIC_TABLE_QUIZ.elements[1].targetId,
+  });
   assert.equal(restored.errorCount, SAVED_PERIODIC_ATTEMPT.errorCount);
-  assert.equal(restored.elapsedMs, SAVED_PERIODIC_ATTEMPT.elapsedMs);
+  assert.equal(restored.elapsedMs, 12_000);
   assert.equal(restored.timerState, "paused");
   assert.equal(restored.segmentStartedAtMs, null);
 });
@@ -44,9 +45,36 @@ test("serialization snapshots a running segment without counting later offline t
   const stored = periodicTableAdapter.serializeProgress(attempt, 4_500);
   const restored = periodicTableAdapter.restoreAttempt(stored.activeAttempt, 90_000);
 
-  assert.equal(stored.activeAttempt.elapsedMs, 3_500);
+  assert.deepEqual(Object.keys(stored.activeAttempt).sort(), [
+    "accumulatedSeconds", "attemptId", "errorCount", "placedElementIds", "poolOrder", "timerState",
+  ]);
+  assert.equal(stored.activeAttempt.accumulatedSeconds, 3);
+  assert.deepEqual(stored.activeAttempt.placedElementIds, []);
   assert.equal(stored.activeAttempt.timerState, "paused");
-  assert.equal(restored.elapsedMs, 3_500);
+  assert.equal(restored.elapsedMs, 3_000);
+  assert.equal(restored.timerState, "paused");
+});
+
+test("adapter progress round-trips through the real backend normalizer", () => {
+  const created = periodicTableAdapter.createAttempt({
+    attemptId: "periodic-wire-round-trip",
+    random: () => 0,
+    nowMs: 10_000,
+  });
+  const [placedId] = created.poolOrder;
+  const uiAttempt = {
+    ...created,
+    placements: { [placedId]: PERIODIC_TABLE_QUIZ.elements.find(({ id }) => id === placedId).targetId },
+    errorCount: 5,
+  };
+  const wire = periodicTableAdapter.serializeProgress(uiAttempt, 12_750);
+  const normalized = normalizeQuizProgress(PERIODIC_TABLE_QUIZ, wire);
+  const restored = periodicTableAdapter.restoreAttempt(normalized.activeAttempt);
+
+  assert.deepEqual(restored.poolOrder, uiAttempt.poolOrder);
+  assert.deepEqual(restored.placements, uiAttempt.placements);
+  assert.equal(restored.errorCount, 5);
+  assert.equal(restored.elapsedMs, 2_000);
   assert.equal(restored.timerState, "paused");
 });
 
@@ -59,7 +87,7 @@ test("only a complete board can build a placement submission", () => {
   );
   const complete = {
     ...incomplete,
-    poolOrder: [],
+    poolOrder: IDS,
     placements,
     errorCount: 7,
     elapsedMs: 7_999,
@@ -107,4 +135,18 @@ test("malformed progress and forged results are rejected", () => {
     }),
     /invalid-periodic-result/,
   );
+  const placements = Object.fromEntries(
+    PERIODIC_TABLE_QUIZ.elements.map(({ id, targetId }) => [id, targetId]),
+  );
+  delete placements[IDS[0]];
+  placements["forged-element"] = undefined;
+  assert.throws(() => periodicTableAdapter.buildSubmission({
+    attemptId: "forged-ui-state",
+    poolOrder: IDS,
+    placements,
+    errorCount: 0,
+    elapsedMs: 0,
+    timerState: "paused",
+    segmentStartedAtMs: null,
+  }), /invalid-periodic-attempt/);
 });

@@ -25,6 +25,12 @@ function isBoundedInteger(value, max) {
   return Number.isInteger(value) && value >= 0 && value <= max;
 }
 
+function hasExactKeys(value, expected) {
+  return isPlainObject(value)
+    && Object.keys(value).length === expected.length
+    && Object.keys(value).every((key) => expected.includes(key));
+}
+
 function snapshotElapsed(state, nowMs) {
   if (state.timerState !== "running") return state.elapsedMs;
   if (!Number.isFinite(nowMs) || !Number.isFinite(state.segmentStartedAtMs)) invalidAttempt();
@@ -43,11 +49,13 @@ function canonicalAttempt(saved, { restore = false } = {}) {
 
   const poolOrder = [...saved.poolOrder];
   const placementEntries = Object.entries(saved.placements);
-  const allIds = [...poolOrder, ...placementEntries.map(([id]) => id)];
-  if (allIds.length !== elementIds.length
-    || new Set(allIds).size !== elementIds.length
-    || allIds.some((id) => !elementIdSet.has(id))
-    || placementEntries.some(([id, targetId]) => expectedTargets.get(id) !== targetId)) {
+  if (poolOrder.length !== elementIds.length
+    || new Set(poolOrder).size !== elementIds.length
+    || poolOrder.some((id) => !elementIdSet.has(id))
+    || new Set(placementEntries.map(([id]) => id)).size !== placementEntries.length
+    || placementEntries.some(([id, targetId]) => (
+      !elementIdSet.has(id) || expectedTargets.get(id) !== targetId
+    ))) {
     invalidAttempt();
   }
 
@@ -67,14 +75,39 @@ function canonicalAttempt(saved, { restore = false } = {}) {
   };
 }
 
+function restoreWireAttempt(saved) {
+  const expectedKeys = [
+    "attemptId", "poolOrder", "placedElementIds", "errorCount",
+    "accumulatedSeconds", "timerState",
+  ];
+  if (!hasExactKeys(saved, expectedKeys)
+    || !Array.isArray(saved.poolOrder)
+    || !Array.isArray(saved.placedElementIds)
+    || new Set(saved.placedElementIds).size !== saved.placedElementIds.length
+    || saved.placedElementIds.some((id) => !elementIdSet.has(id))
+    || !isBoundedInteger(saved.accumulatedSeconds, 604_800)) invalidAttempt();
+
+  return canonicalAttempt({
+    attemptId: saved.attemptId,
+    poolOrder: saved.poolOrder,
+    placements: Object.fromEntries(
+      saved.placedElementIds.map((id) => [id, expectedTargets.get(id)]),
+    ),
+    errorCount: saved.errorCount,
+    elapsedMs: saved.accumulatedSeconds * 1000,
+    timerState: saved.timerState,
+    segmentStartedAtMs: null,
+  }, { restore: true });
+}
+
 function storedAttempt(state, nowMs) {
   const attempt = canonicalAttempt(state);
   return {
     attemptId: attempt.attemptId,
     poolOrder: attempt.poolOrder,
-    placements: attempt.placements,
+    placedElementIds: Object.keys(attempt.placements),
     errorCount: attempt.errorCount,
-    elapsedMs: snapshotElapsed(attempt, nowMs),
+    accumulatedSeconds: Math.floor(snapshotElapsed(attempt, nowMs) / 1000),
     timerState: "paused",
   };
 }
@@ -100,7 +133,7 @@ export const periodicTableAdapter = Object.freeze({
   },
 
   restoreAttempt(saved) {
-    return canonicalAttempt(saved, { restore: true });
+    return restoreWireAttempt(saved);
   },
 
   serializeProgress(state, nowMs = Date.now()) {
@@ -109,7 +142,7 @@ export const periodicTableAdapter = Object.freeze({
 
   buildSubmission(state, nowMs = Date.now()) {
     const attempt = canonicalAttempt(state);
-    if (attempt.poolOrder.length !== 0 || Object.keys(attempt.placements).length !== elementIds.length) {
+    if (Object.keys(attempt.placements).length !== elementIds.length) {
       throw new Error("incomplete-periodic-attempt");
     }
     return {
@@ -143,14 +176,14 @@ export const periodicTableAdapter = Object.freeze({
   restoreConfirmedSubmission({ currentAttempt, submission, result }) {
     if (submission?.attemptId !== currentAttempt?.attemptId) invalidAttempt();
     return {
-      attempt: periodicTableAdapter.restoreAttempt({
+      attempt: canonicalAttempt({
         ...currentAttempt,
         placements: submission.placements,
-        poolOrder: [],
         errorCount: submission.errorCount,
         elapsedMs: submission.durationSeconds * 1000,
         timerState: "paused",
-      }),
+        segmentStartedAtMs: null,
+      }, { restore: true }),
       result: periodicTableAdapter.renderResult(result),
     };
   },

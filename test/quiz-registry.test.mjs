@@ -183,6 +183,35 @@ test("placement submissions return only placement results and reject score field
   );
 });
 
+test("placement dispatcher validates against the supplied definition identity", () => {
+  const synthetic = {
+    id: "synthetic-placement-2",
+    version: 7,
+    kind: "placement",
+    elements: [
+      { id: "token-x", targetId: "slot-x" },
+      { id: "token-y", targetId: "slot-y" },
+    ],
+  };
+  const submission = {
+    placements: { "token-x": "slot-x", "token-y": "slot-y" },
+    errorCount: 2,
+    durationSeconds: 3,
+  };
+  assert.deepEqual(validateQuizSubmission(synthetic, submission), {
+    resultType: "placement",
+    completedCount: 2,
+    totalItems: 2,
+    errorCount: 2,
+    durationSeconds: 3,
+    completed: true,
+  });
+  assert.throws(() => validateQuizSubmission(
+    { ...synthetic, id: "synthetic-placement-other", elements: [{ id: "other", targetId: "other-slot" }] },
+    submission,
+  ), /invalid-submission/);
+});
+
 test("cross-kind and unknown submission fields reject", () => {
   const english = getQuizDefinition("english-review-2", 1);
   const periodic = getQuizDefinition("periodic-table", 1);

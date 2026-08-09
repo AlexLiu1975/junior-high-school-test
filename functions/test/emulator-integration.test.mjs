@@ -6,6 +6,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { QUIZ_CATALOG, getQuizDefinition } from "../shared/quizRegistry.js";
+import { periodicTableAdapter } from "../../src/periodicTableAdapter.js";
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || "junior-high-school-test";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -185,6 +186,53 @@ integrationTest("all three quizzes restore on a second anonymous user and retry 
     assert.equal(privateSnapshot.exists, true);
     assert.match(privateSnapshot.data().maskedIp, /(?:xxx|unknown|無法判定)$/);
   }
+});
+
+integrationTest("periodic adapter wire progress survives callable save and load", async () => {
+  const first = await anonymousUser();
+  const second = await anonymousUser();
+  const student = await seedStudent({
+    studentId: `periodic-wire-${randomUUID()}`,
+    code: "20260809-009",
+    name: "元素表契約測試",
+  });
+  const created = periodicTableAdapter.createAttempt({
+    attemptId: `wire_${randomUUID().replaceAll("-", "")}`,
+    random: () => 0,
+    nowMs: 1_000,
+  });
+  const [firstId, secondId] = created.poolOrder.slice(0, 2);
+  const definition = getQuizDefinition("periodic-table", 1);
+  const targetById = new Map(definition.elements.map(({ id, targetId }) => [id, targetId]));
+  const uiAttempt = {
+    ...created,
+    placements: {
+      [firstId]: targetById.get(firstId),
+      [secondId]: targetById.get(secondId),
+    },
+    errorCount: 4,
+  };
+  const wireProgress = periodicTableAdapter.serializeProgress(uiAttempt, 5_500);
+  const common = {
+    ...identity(student),
+    quizId: definition.id,
+    quizVersion: definition.version,
+  };
+
+  const saved = await callable("saveStudentProgress", first.idToken, {
+    ...common,
+    baseRevision: 0,
+    ...wireProgress,
+  });
+  assert.equal(saved.revision, 1);
+  const loaded = await callable("loadStudentProgress", second.idToken, common);
+  const restored = periodicTableAdapter.restoreAttempt(loaded.activeAttempt);
+
+  assert.deepEqual(restored.poolOrder, created.poolOrder);
+  assert.deepEqual(restored.placements, uiAttempt.placements);
+  assert.equal(restored.errorCount, 4);
+  assert.equal(restored.elapsedMs, 4_000);
+  assert.equal(restored.timerState, "paused");
 });
 
 integrationTest("cross-kind submission is rejected before writing either attempt record", async () => {
