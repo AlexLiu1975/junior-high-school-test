@@ -20,6 +20,42 @@ test("GitHub Actions builds and deploys the Vite dist directory", async () => {
   assert.match(workflow, /actions\/deploy-pages@v4/);
 });
 
+test("GitHub Actions verifies Functions and the combined emulator suite without deploying backend services", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/deploy-pages.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /npm --prefix functions ci/);
+  assert.match(workflow, /npm run test:functions/);
+  assert.match(workflow, /npm run test:emulators/);
+  assert.doesNotMatch(workflow, /firebase deploy\s+--only\s+(?:functions|firestore|functions,firestore)/);
+});
+
+test("Firebase config exposes the combined Auth, Firestore, and Functions emulator ports", async () => {
+  const config = await readFile(
+    new URL("../firebase.json", import.meta.url),
+    "utf8",
+  ).then(JSON.parse);
+
+  assert.equal(config.emulators.auth.port, 9099);
+  assert.equal(config.emulators.firestore.port, 8080);
+  assert.equal(config.emulators.functions.port, 5001);
+});
+
+test("root package scripts include Functions, combined emulators, and the complete verification gate", async () => {
+  const pkg = await readFile(new URL("../package.json", import.meta.url), "utf8").then(JSON.parse);
+
+  assert.equal(pkg.scripts["test:functions"], "npm --prefix functions test");
+  assert.match(pkg.scripts["test:emulators"], /--only auth,firestore,functions/);
+  assert.match(pkg.scripts["test:emulators"], /functions\/test\/emulator-integration\.test\.mjs/);
+  assert.match(pkg.scripts["test:emulators"], /test\/firestore\.rules\.test\.mjs/);
+  assert.equal(
+    pkg.scripts.verify,
+    "npm test && npm run test:functions && npm run test:emulators && npm run lint && npm run build",
+  );
+});
+
 test("missing Firebase settings are reported before SDK initialization", async () => {
   const { getMissingFirebaseConfigKeys } = await import(
     "../src/firebaseConfig.js"
