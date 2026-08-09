@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -33,4 +34,18 @@ test("student Firebase initialization passes the callable region to getFunctions
 test("teacher Firebase initialization passes the callable region to getFunctions", () => {
   assert.equal(TEACHER_FUNCTIONS_REGION, "us-central1");
   assertFunctionsInitialization(createTeacherFunctions, "us-central1");
+});
+
+test("production Firebase bootstraps consume the tested Functions initializers", async () => {
+  const [studentSource, teacherSource] = await Promise.all([
+    readFile(new URL("../src/firebase.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/teacherFirebase.js", import.meta.url), "utf8"),
+  ]);
+  const studentBootstrap = studentSource.replace(/\s+/g, "");
+  const teacherBootstrap = teacherSource.replace(/\s+/g, "");
+
+  assert.match(studentBootstrap, /constfunctions=createStudentFunctions\(app\);/);
+  assert.doesNotMatch(studentBootstrap, /constfunctions=getFunctions\(/);
+  assert.match(teacherBootstrap, /constteacherFunctions=createTeacherFunctions\(teacherApp\);/);
+  assert.doesNotMatch(teacherBootstrap, /constteacherFunctions=getFunctions\(/);
 });
