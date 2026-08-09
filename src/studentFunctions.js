@@ -1,6 +1,6 @@
 import { httpsCallable } from "firebase/functions";
 
-export const STUDENT_FUNCTIONS_REGION = "asia-east1";
+export const STUDENT_FUNCTIONS_REGION = "us-central1";
 
 async function invoke(callable, input) {
   const result = await callable(input);

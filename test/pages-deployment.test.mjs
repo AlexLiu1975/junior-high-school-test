@@ -10,6 +10,15 @@ const ALLOWED_ACTIONS = new Set([
   "actions/deploy-pages@v4",
 ]);
 
+const REGION_FILES = [
+  "functions/index.js",
+  "src/studentFunctions.js",
+  "src/teacherFirebase.js",
+  "functions/test/emulator-integration.test.mjs",
+  ".env.example",
+  "README.md",
+];
+
 function assertPagesOnlyWorkflow(workflow) {
   const actions = [...workflow.matchAll(/^\s*uses:\s*([^\s#]+).*$/gm)].map((match) => match[1]);
   assert.equal(actions.length > 0, true);
@@ -46,6 +55,14 @@ test("backend deployment guard rejects command and action variants", () => {
     assert.throws(() => assertPagesOnlyWorkflow(`${safe}\nrun: ${command}`));
   }
   assert.throws(() => assertPagesOnlyWorkflow(`${safe}\nuses: google-github-actions/deploy-cloud-functions@v1`));
+});
+
+test("every callable surface uses the nam5-aligned Functions region", async () => {
+  for (const file of REGION_FILES) {
+    const source = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.match(source, /us-central1/, `${file} must declare us-central1`);
+    assert.doesNotMatch(source, /asia-east1/, `${file} must not declare asia-east1`);
+  }
 });
 
 test("Vite builds assets below the repository GitHub Pages path", async () => {

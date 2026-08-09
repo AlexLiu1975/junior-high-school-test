@@ -53,7 +53,7 @@ async function googleUser({ sub, email, emailVerified = true }) {
 
 async function callable(name, token, data, { expectedStatus = 200 } = {}) {
   const response = await fetch(
-    `${hostUrl(FUNCTIONS_HOST)}/${PROJECT_ID}/asia-east1/${name}`,
+    `${hostUrl(FUNCTIONS_HOST)}/${PROJECT_ID}/us-central1/${name}`,
     {
       method: "POST",
       headers: {

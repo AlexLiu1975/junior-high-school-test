@@ -15,6 +15,24 @@ import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
 
 const functionsEntrypoint = await import("../index.js");
 
+test("every exported callable retains the nam5-aligned region and resource limits", () => {
+  assert.deepEqual(functionsEntrypoint.CALLABLE_OPTIONS, {
+    region: "us-central1",
+    maxInstances: 3,
+    timeoutSeconds: 30,
+    memory: "256MiB",
+  });
+
+  for (const name of [
+    "loadStudentProgress",
+    "saveStudentProgress",
+    "submitQuizAttempt",
+    "removeOrDeactivateStudent",
+  ]) {
+    assert.equal(typeof functionsEntrypoint[name]?.run, "function", `${name} must be callable`);
+  }
+});
+
 const NOW = new Date("2026-08-02T04:05:06.000Z");
 const ANON_AUTH = {
   uid: "anonymous-uid",
