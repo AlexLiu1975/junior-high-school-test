@@ -12,12 +12,15 @@ const ALLOWED_ACTIONS = new Set([
 
 const REGION_FILES = [
   "functions/index.js",
+  "src/firebase.js",
   "src/studentFunctions.js",
   "src/teacherFirebase.js",
   "functions/test/emulator-integration.test.mjs",
   ".env.example",
   "README.md",
 ];
+const REGION_DECLARATION_FILES = REGION_FILES.filter((file) => file !== "src/firebase.js");
+const RETIRED_REGION = ["asia", "east1"].join("-");
 
 function assertPagesOnlyWorkflow(workflow) {
   const actions = [...workflow.matchAll(/^\s*uses:\s*([^\s#]+).*$/gm)].map((match) => match[1]);
@@ -60,8 +63,10 @@ test("backend deployment guard rejects command and action variants", () => {
 test("every callable surface uses the nam5-aligned Functions region", async () => {
   for (const file of REGION_FILES) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
-    assert.match(source, /us-central1/, `${file} must declare us-central1`);
-    assert.doesNotMatch(source, /asia-east1/, `${file} must not declare asia-east1`);
+    assert.doesNotMatch(source, new RegExp(RETIRED_REGION), `${file} must not declare the retired region`);
+    if (REGION_DECLARATION_FILES.includes(file)) {
+      assert.match(source, /us-central1/, `${file} must declare us-central1`);
+    }
   }
 });
 

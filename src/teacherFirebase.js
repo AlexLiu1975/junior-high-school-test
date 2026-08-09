@@ -55,7 +55,11 @@ const teacherAuth = teacherApp
   ? initializeAuth(teacherApp, getTeacherAuthOptions())
   : null;
 const teacherDb = teacherApp ? getFirestore(teacherApp) : null;
-const teacherFunctions = teacherApp ? getFunctions(teacherApp, "us-central1") : null;
+export const TEACHER_FUNCTIONS_REGION = "us-central1";
+export function createTeacherFunctions(appInstance, getFunctionsFactory = getFunctions) {
+  return appInstance ? getFunctionsFactory(appInstance, TEACHER_FUNCTIONS_REGION) : null;
+}
+const teacherFunctions = createTeacherFunctions(teacherApp);
 const provider = new GoogleAuthProvider();
 
 function requireTeacherFirebase() {

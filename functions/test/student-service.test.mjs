@@ -15,21 +15,18 @@ import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
 
 const functionsEntrypoint = await import("../index.js");
 
-test("every exported callable retains the nam5-aligned region and resource limits", () => {
-  assert.deepEqual(functionsEntrypoint.CALLABLE_OPTIONS, {
-    region: "us-central1",
-    maxInstances: 3,
-    timeoutSeconds: 30,
-    memory: "256MiB",
-  });
-
+test("every exported callable exposes the nam5-aligned endpoint metadata and resource limits", () => {
   for (const name of [
     "loadStudentProgress",
     "saveStudentProgress",
     "submitQuizAttempt",
     "removeOrDeactivateStudent",
   ]) {
-    assert.equal(typeof functionsEntrypoint[name]?.run, "function", `${name} must be callable`);
+    const endpoint = functionsEntrypoint[name]?.__endpoint;
+    assert.deepEqual(endpoint?.region, ["us-central1"], `${name} must target us-central1`);
+    assert.equal(endpoint?.maxInstances, 3, `${name} must retain maxInstances`);
+    assert.equal(endpoint?.timeoutSeconds, 30, `${name} must retain timeoutSeconds`);
+    assert.equal(endpoint?.availableMemoryMb, 256, `${name} must retain memory`);
   }
 });
 
