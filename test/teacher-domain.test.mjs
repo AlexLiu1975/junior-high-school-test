@@ -45,12 +45,21 @@ test("maps authentication and approval states", () => {
   );
   assert.equal(
     getPortalState({
-      user: { email: adminEmail, emailVerified: true },
+      user: { email: adminEmail, emailVerified: true, providerData: [{ providerId: "google.com" }] },
       request: null,
       access: null,
       adminEmail,
     }),
     "admin",
+  );
+  assert.equal(
+    getPortalState({
+      user: { email: adminEmail, emailVerified: true, providerData: [{ providerId: "password" }] },
+      request: null,
+      access: null,
+      adminEmail,
+    }),
+    "apply",
   );
 });
 

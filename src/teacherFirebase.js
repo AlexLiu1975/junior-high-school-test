@@ -22,6 +22,7 @@ import {
   writeBatch,
   where,
 } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import {
   getFirebaseConfig,
   getMissingFirebaseConfigKeys,
@@ -34,6 +35,7 @@ import {
   runAdminStudentCreation,
   runParentApproval,
 } from "./teacherTransactions.js";
+import { joinAttemptPrivate } from "./attemptPrivateDomain.js";
 
 const firebaseConfig = getFirebaseConfig();
 const missingConfigKeys = getMissingFirebaseConfigKeys(firebaseConfig);
@@ -53,6 +55,7 @@ const teacherAuth = teacherApp
   ? initializeAuth(teacherApp, getTeacherAuthOptions())
   : null;
 const teacherDb = teacherApp ? getFirestore(teacherApp) : null;
+const teacherFunctions = teacherApp ? getFunctions(teacherApp, "asia-east1") : null;
 const provider = new GoogleAuthProvider();
 
 function requireTeacherFirebase() {
@@ -131,9 +134,25 @@ export async function listAttemptsForAccess(access, isAdmin = false) {
     return [];
   }
   const snapshot = await getDocs(attemptsQuery);
-  return snapshot.docs
+  const attempts = snapshot.docs
     .map((attempt) => ({ id: attempt.id, ...attempt.data() }))
     .sort(newestFirst);
+  return isAdmin ? joinAttemptPrivate(attempts, await listPrivateAttempts()) : attempts;
+}
+
+async function listPrivateAttempts(attemptIds = null) {
+  requireAdmin();
+  if (attemptIds?.length === 0) return [];
+  if (!attemptIds) {
+    const snapshot = await getDocs(collection(teacherDb, "attemptPrivate"));
+    return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  }
+  const snapshots = await Promise.all(
+    attemptIds.map((attemptId) => getDoc(doc(teacherDb, "attemptPrivate", attemptId))),
+  );
+  return snapshots
+    .filter((snapshot) => snapshot.exists())
+    .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
 }
 
 export async function listStudentsForAccess(access) {
@@ -152,7 +171,8 @@ export async function listStudentsForAccess(access) {
 function requireAdmin() {
   requireTeacherFirebase();
   const user = teacherAuth.currentUser;
-  if (!user || user.email !== "beyle931224@gmail.com" || !user.emailVerified) {
+  const isGoogleUser = user?.providerData?.some(({ providerId }) => providerId === "google.com") === true;
+  if (!user || user.email !== "beyle931224@gmail.com" || !user.emailVerified || !isGoogleUser) {
     throw new Error("admin-required");
   }
   return user;
@@ -199,11 +219,22 @@ export async function listAttemptsForStudentIds(studentIds) {
       ),
     ),
   );
-  return snapshots
+  const attempts = snapshots
     .flatMap((snapshot) =>
       snapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
     )
     .sort(newestFirst);
+  return joinAttemptPrivate(
+    attempts,
+    await listPrivateAttempts(attempts.map((attempt) => attempt.id)),
+  );
+}
+
+export async function removeAdminStudent(studentId) {
+  requireAdmin();
+  const callable = httpsCallable(teacherFunctions, "removeOrDeactivateStudent");
+  const result = await callable({ studentId });
+  return result.data;
 }
 
 export function subscribeToPendingRequests(callback) {

@@ -3,6 +3,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { createFirestoreStudentRepository } from "./firestoreStudentRepository.js";
 import { maskIp } from "./ipMask.js";
+import { removeOrDeactivateStudent as runStudentRemoval } from "./adminStudentService.js";
 import {
   loadProgress,
   requireAnonymousAuth,
@@ -38,6 +39,9 @@ const CALLABLE_ERROR_CODES = new Map([
   ["invalid-submission", "invalid-argument"],
   ["attempt-id-conflict", "already-exists"],
   ["progress-conflict", "aborted"],
+  ["admin-required", "permission-denied"],
+  ["invalid-student-id", "invalid-argument"],
+  ["student-not-owned", "permission-denied"],
 ]);
 
 export function toCallableError(error) {
@@ -87,4 +91,12 @@ export const submitQuizAttempt = onCall(CALLABLE_OPTIONS, async (request) => {
       now: Timestamp.now(),
     });
   });
+});
+
+export const removeOrDeactivateStudent = onCall(CALLABLE_OPTIONS, async (request) => {
+  return callStudentService(() => runStudentRemoval({
+    repository,
+    auth: request.auth,
+    input: request.data,
+  }));
 });
