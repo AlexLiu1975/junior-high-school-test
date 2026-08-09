@@ -10,6 +10,7 @@ const moduleLoader = route.mode === 'quiz'
   ? {
       'biology-cell-microscope-1': () => import('./BiologyQuiz.jsx'),
       'english-review-2': () => import('./EnglishReview2Quiz.jsx'),
+      'periodic-table': () => import('./PeriodicTableQuiz.jsx'),
     }[route.quiz.id] ?? null
   : null
 const quizEntry = route.mode === 'catalog'
