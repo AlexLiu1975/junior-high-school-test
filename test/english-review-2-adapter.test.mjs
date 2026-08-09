@@ -13,6 +13,8 @@ test("English progress preserves answers and last answered question", () => {
   const restored = englishReview2Adapter.restoreAttempt(saved.activeAttempt);
 
   assert.deepEqual(saved.activeAttempt.answers, { e01: "e01-o3" });
+  assert.equal(saved.activeAttempt.currentQuestionIndex, 0);
+  assert.equal(Object.hasOwn(saved.activeAttempt, "lastAnsweredId"), false);
   assert.equal(restored.lastAnsweredId, "e01");
 });
 
@@ -49,7 +51,7 @@ test("English submission contains the canonical answer state without caller scor
   assert.equal(Object.hasOwn(submission, "studentName"), false);
 });
 
-test("English result accepts only a server-confirmed score and wrong IDs", () => {
+test("English result accepts only a server-confirmed score and valid wrong IDs", () => {
   assert.deepEqual(englishReview2Adapter.renderResult({
     resultType: "score",
     score: 97,
@@ -64,15 +66,33 @@ test("English result accepts only a server-confirmed score and wrong IDs", () =>
     wrongIds: ["e02"],
   });
 
-  assert.throws(
-    () => englishReview2Adapter.renderResult({
-      resultType: "score",
-      score: 100,
-      correctCount: 40,
-      wrongCount: 0,
-    }),
-    /invalid-english-result/,
-  );
+  for (const wrongIds of [undefined, ["e99"], ["e02", "e02"], ["e02", "e03"]]) {
+    assert.throws(
+      () => englishReview2Adapter.renderResult({
+        resultType: "score",
+        score: 97,
+        correctCount: 39,
+        wrongCount: 1,
+        wrongIds,
+      }),
+      /invalid-english-result/,
+    );
+  }
+});
+
+test("English safely renders a pre-wrongIds retry without inventing question review", () => {
+  assert.deepEqual(englishReview2Adapter.renderResult({
+    resultType: "score",
+    score: 95,
+    correctCount: 38,
+    wrongCount: 2,
+  }), {
+    score: 95,
+    correctCount: 38,
+    wrongCount: 2,
+    wrongIds: null,
+    reviewAvailable: false,
+  });
 });
 
 test("online recovery restores the submitted answers and trusted result", () => {

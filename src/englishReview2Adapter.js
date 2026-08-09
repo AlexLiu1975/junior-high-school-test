@@ -89,6 +89,8 @@ export const englishReview2Adapter = Object.freeze({
 
   serializeProgress(state) {
     const attempt = canonicalAttempt(state);
+    // The approved cloud schema carries this position as the canonical question index.
+    // lastAnsweredId is reconstructed from that index after cloud/local progress selection.
     const { lastAnsweredId: _lastAnsweredId, ...activeAttempt } = attempt;
     return { activeAttempt, reviewProgress: {} };
   },
@@ -121,6 +123,7 @@ export const englishReview2Adapter = Object.freeze({
   },
 
   renderResult(result) {
+    const hasWrongIds = Object.hasOwn(result ?? {}, "wrongIds");
     if (result?.resultType !== "score"
       || !Number.isFinite(result.score)
       || result.score < 0
@@ -130,11 +133,22 @@ export const englishReview2Adapter = Object.freeze({
       || result.correctCount < 0
       || result.wrongCount < 0
       || result.correctCount + result.wrongCount !== questionOrder.length
-      || !Array.isArray(result.wrongIds)
-      || result.wrongIds.length !== result.wrongCount
-      || new Set(result.wrongIds).size !== result.wrongIds.length
-      || result.wrongIds.some((questionId) => !optionIdsByQuestion.has(questionId))) {
+      || (hasWrongIds && (
+        !Array.isArray(result.wrongIds)
+        || result.wrongIds.length !== result.wrongCount
+        || new Set(result.wrongIds).size !== result.wrongIds.length
+        || result.wrongIds.some((questionId) => !optionIdsByQuestion.has(questionId))
+      ))) {
       throw new Error("invalid-english-result");
+    }
+    if (!hasWrongIds) {
+      return {
+        score: result.score,
+        correctCount: result.correctCount,
+        wrongCount: result.wrongCount,
+        wrongIds: null,
+        reviewAvailable: false,
+      };
     }
     return {
       score: result.score,

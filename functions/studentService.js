@@ -203,8 +203,9 @@ function projectStoredScore(attemptId, stored, definition, mode) {
     "completedCount", "totalItems", "errorCount", "durationSeconds", "completed",
   ];
   const questionIds = new Set(definition.questions.map(({ id }) => id));
-  const hasValidWrongIds = mode === "legacy-score"
-    ? stored.wrongIds === undefined
+  const hasWrongIds = Object.hasOwn(stored, "wrongIds");
+  const hasValidWrongIds = !hasWrongIds
+    ? true
     : Array.isArray(stored.wrongIds)
       && stored.wrongIds.length === stored.wrongCount
       && new Set(stored.wrongIds).size === stored.wrongIds.length
@@ -231,7 +232,7 @@ function projectStoredScore(attemptId, stored, definition, mode) {
     correctCount: stored.correctCount,
     wrongCount: stored.wrongCount,
   };
-  if (mode === "current") projected.wrongIds = [...stored.wrongIds];
+  if (hasWrongIds) projected.wrongIds = [...stored.wrongIds];
   return projected;
 }
 

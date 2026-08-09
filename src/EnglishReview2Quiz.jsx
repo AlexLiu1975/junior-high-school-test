@@ -24,7 +24,7 @@ function ReadingBlock({ readingId }) {
 }
 
 function QuestionCard({ question, answer, confirmedResult, disabled, onAnswer }) {
-  const isConfirmed = confirmedResult !== null;
+  const isConfirmed = Array.isArray(confirmedResult?.wrongIds);
   const isWrong = isConfirmed && confirmedResult.wrongIds.includes(question.id);
   return (
     <article
@@ -127,7 +127,9 @@ export default function EnglishReview2Quiz({ progress, sync }) {
         setMessage(
           refreshRequired
             ? "完成紀錄已保存；請重新整理頁面後再開始新的測驗。"
-            : "完成紀錄已保存。",
+            : recovered.result.reviewAvailable === false
+              ? "完成紀錄已保存；此筆舊成績沒有逐題錯題資料，因此只顯示總成績。"
+              : "完成紀錄已保存。",
         );
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (error) {
@@ -178,7 +180,11 @@ export default function EnglishReview2Quiz({ progress, sync }) {
         await sync.submit(englishReview2Adapter.buildSubmission(attempt)),
       );
       setConfirmedResult(result);
-      setMessage("完成紀錄已保存。");
+      setMessage(
+        result.reviewAvailable === false
+          ? "完成紀錄已保存；此筆舊成績沒有逐題錯題資料，因此只顯示總成績。"
+          : "完成紀錄已保存。",
+      );
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       console.error("English submission failed", error);

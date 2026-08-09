@@ -642,6 +642,28 @@ test("registered English attempts use trusted catalog metadata and fixed score f
   assert.deepEqual([...repository.privateAttempts.keys()], [input.attemptId]);
 });
 
+test("new English submissions reject caller-supplied wrongIds", async () => {
+  const repository = createMemoryStudentRepository();
+  const input = {
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    attemptId: "attempt-english-caller-wrong-ids",
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    questionOrder: ENGLISH_QUESTION_ORDER,
+    optionOrder: ENGLISH_OPTION_ORDER,
+    answers: {},
+    reviewProgress: {},
+    wrongIds: [],
+  };
+
+  await assert.rejects(
+    submitAttempt({ repository, auth: ANON_AUTH, input, maskedIp: "203.0.113.xxx", now: NOW }),
+    /invalid-submission/,
+  );
+  assert.equal(repository.attempts.size, 0);
+});
+
 test("a stored score retry rejects wrong IDs outside the registered question set", async () => {
   const repository = createMemoryStudentRepository();
   const firstQuestion = ENGLISH_REVIEW_2.questions[0];
@@ -664,6 +686,98 @@ test("a stored score retry rejects wrong IDs outside the registered question set
     submitAttempt({ repository, auth: ANON_AUTH, input, maskedIp: "203.0.113.xxx", now: NOW }),
     /attempt-id-conflict/,
   );
+});
+
+test("a stored score retry rejects present but malformed wrongIds", async () => {
+  const firstQuestion = ENGLISH_REVIEW_2.questions[0];
+  const correctAnswer = firstQuestion.options.find(({ correct }) => correct).id;
+  const input = {
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    attemptId: "attempt-english-malformed-wrong-ids",
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    questionOrder: ENGLISH_QUESTION_ORDER,
+    optionOrder: ENGLISH_OPTION_ORDER,
+    answers: { [firstQuestion.id]: correctAnswer },
+    reviewProgress: {},
+  };
+
+  for (const wrongIds of [undefined, ["e02", "e02"], ["e02", "e03"]]) {
+    const repository = createMemoryStudentRepository();
+    await submitAttempt({
+      repository,
+      auth: ANON_AUTH,
+      input,
+      maskedIp: "203.0.113.xxx",
+      now: NOW,
+    });
+    repository.attempts.get(input.attemptId).wrongIds = wrongIds;
+
+    await assert.rejects(
+      submitAttempt({ repository, auth: ANON_AUTH, input, maskedIp: "203.0.113.xxx", now: NOW }),
+      /attempt-id-conflict/,
+    );
+  }
+});
+
+test("a current-format English score saved before wrongIds returns a safe legacy projection", async () => {
+  const repository = createMemoryStudentRepository();
+  const input = {
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    attemptId: "attempt-english-before-wrong-ids",
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    questionOrder: ENGLISH_QUESTION_ORDER,
+    optionOrder: ENGLISH_OPTION_ORDER,
+    answers: {},
+    reviewProgress: {},
+  };
+  repository.attempts.set(input.attemptId, {
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    quizKind: "multiple-choice",
+    quizTitle: ENGLISH_REVIEW_2.title,
+    subject: ENGLISH_REVIEW_2.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "score",
+    score: 95,
+    correctCount: 38,
+    wrongCount: 2,
+    answers: { e01: "must-not-leak" },
+    extraSecret: "must-not-leak",
+  });
+
+  const retry = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input,
+    maskedIp: "198.51.100.xxx",
+    now: NOW,
+  });
+
+  assert.deepEqual(retry, {
+    attemptId: input.attemptId,
+    quizId: ENGLISH_REVIEW_2.id,
+    quizVersion: ENGLISH_REVIEW_2.version,
+    quizKind: "multiple-choice",
+    quizTitle: ENGLISH_REVIEW_2.title,
+    subject: ENGLISH_REVIEW_2.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "score",
+    score: 95,
+    correctCount: 38,
+    wrongCount: 2,
+  });
 });
 
 test("placement attempts use a fixed placement result and never accept score fields", async () => {
