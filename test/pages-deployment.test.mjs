@@ -2,6 +2,52 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+const ALLOWED_ACTIONS = new Set([
+  "actions/checkout@v4",
+  "actions/setup-node@v4",
+  "actions/setup-java@v4",
+  "actions/upload-pages-artifact@v3",
+  "actions/deploy-pages@v4",
+]);
+
+function assertPagesOnlyWorkflow(workflow) {
+  const actions = [...workflow.matchAll(/^\s*uses:\s*([^\s#]+).*$/gm)].map((match) => match[1]);
+  assert.equal(actions.length > 0, true);
+  for (const action of actions) assert.equal(ALLOWED_ACTIONS.has(action), true, `unexpected action: ${action}`);
+
+  const lines = workflow.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)run:\s*(.*)$/);
+    if (!match) continue;
+    const indent = match[1].length;
+    const commandLines = [match[2]];
+    while (index + 1 < lines.length) {
+      const next = lines[index + 1];
+      const nextIndent = next.match(/^\s*/)[0].length;
+      if (next.trim() && nextIndent <= indent) break;
+      commandLines.push(next.trim());
+      index += 1;
+    }
+    const command = commandLines.join(" ");
+    assert.doesNotMatch(command, /(?:^|\s)(?:npx\s+)?firebase(?:\s|$)/i);
+    assert.doesNotMatch(command, /(?:^|\s)deploy(?:\s|$)/i);
+    assert.doesNotMatch(command, /--only\s+(?:firestore(?::rules)?|functions)(?:\s|,|$)/i);
+  }
+}
+
+test("backend deployment guard rejects command and action variants", () => {
+  const safe = "uses: actions/checkout@v4\nrun: npm test";
+  for (const command of [
+    "npx firebase deploy --only functions",
+    "firebase --project junior-high-school-test deploy --only firestore:rules",
+    "firebase deploy",
+    "deploy --only firestore",
+  ]) {
+    assert.throws(() => assertPagesOnlyWorkflow(`${safe}\nrun: ${command}`));
+  }
+  assert.throws(() => assertPagesOnlyWorkflow(`${safe}\nuses: google-github-actions/deploy-cloud-functions@v1`));
+});
+
 test("Vite builds assets below the repository GitHub Pages path", async () => {
   const { default: config } = await import("../vite.config.js");
 
@@ -29,7 +75,7 @@ test("GitHub Actions verifies Functions and the combined emulator suite without 
   assert.match(workflow, /npm --prefix functions ci/);
   assert.match(workflow, /npm run test:functions/);
   assert.match(workflow, /npm run test:emulators/);
-  assert.doesNotMatch(workflow, /firebase deploy\s+--only\s+(?:functions|firestore|functions,firestore)/);
+  assertPagesOnlyWorkflow(workflow);
 });
 
 test("Firebase config exposes the combined Auth, Firestore, and Functions emulator ports", async () => {

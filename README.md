@@ -39,7 +39,7 @@
 - 伺服器只保存遮罩 IP：IPv4 隱藏最後一段、IPv6 只留前綴；無法判定時保存「無法判定」。完整 IP 不應寫入 Firestore。
 - 答案、計分與寫入由 Callable Functions 驗證；Firestore Rules 禁止學生直接寫入進度與成績。
 - Firebase Web 設定值不是服務帳戶金鑰；不得把服務帳戶 JSON、私鑰或存取權杖放入 `.env`、GitHub Variables 或倉庫。
-- 預算警示只會通知，不是硬性費用上限。啟用 Blaze 前請另外設定低額預算警示並持續監看用量。
+- 預算警示只會通知，不是硬性費用上限。啟用 Blaze 前請由專案擁有人選定可接受的小額月預算；測試期可考慮從每月 NT$100（或等值幣別）開始，並設定 50%、90%、100% 通知門檻。這只是起始提醒建議，不代表現有 Billing 狀態或費用上限，仍須持續監看用量。
 
 ## Firebase 前置設定
 
@@ -53,7 +53,7 @@
    - `submitQuizAttempt`
    - `removeOrDeactivateStudent`
 4. 四個 Callable 都設定 `maxInstances: 3`、逾時 30 秒、記憶體 256 MiB。
-5. 部署 Functions 通常必須使用 Blaze 計費方案；先確認 Billing 已連結並建立低額預算警示。警示不會自動停止服務。
+5. 部署 Functions 通常必須使用 Blaze 計費方案；先確認 Billing 已連結，並由擁有人依可承擔金額建立低額月預算警示（測試期可考慮 NT$100 或等值幣別、50%／90%／100% 通知）。警示不會自動停止服務，也不是硬性費用上限。
 6. Functions、Rules 與 indexes 是人工部署門檻；GitHub Actions 只會在全部驗證通過後自動發布 Pages，不會自動部署後端。
 
 本機 `.env` 與 GitHub Repository Variables 使用：

@@ -5,8 +5,6 @@ import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
-import { createFirestoreStudentRepository } from "../firestoreStudentRepository.js";
-import { removeOrDeactivateStudent } from "../adminStudentService.js";
 import { QUIZ_CATALOG, getQuizDefinition } from "../shared/quizRegistry.js";
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || "junior-high-school-test";
@@ -14,17 +12,9 @@ const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST;
 const FUNCTIONS_HOST = process.env.FIREBASE_FUNCTIONS_EMULATOR_HOST || "127.0.0.1:5001";
 const integrationTest = AUTH_HOST && FIRESTORE_HOST ? test : test.skip;
-const ADMIN_AUTH = {
-  uid: "admin-integration",
-  token: {
-    email: "beyle931224@gmail.com",
-    email_verified: true,
-    firebase: { sign_in_provider: "google.com" },
-  },
-};
+const ADMIN_UID = "admin-integration";
 
 let db;
-let repository;
 let rulesEnvironment;
 
 function hostUrl(host) {
@@ -35,6 +25,25 @@ async function anonymousUser() {
   const response = await fetch(
     `${hostUrl(AUTH_HOST)}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key`,
     { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+  );
+  const body = await response.text();
+  assert.equal(response.ok, true, body);
+  return JSON.parse(body);
+}
+
+async function googleUser({ sub, email, emailVerified = true }) {
+  const idToken = JSON.stringify({ sub, email, email_verified: emailVerified });
+  const postBody = new URLSearchParams({
+    providerId: "google.com",
+    id_token: idToken,
+  }).toString();
+  const response = await fetch(
+    `${hostUrl(AUTH_HOST)}/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=fake-api-key`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestUri: "http://localhost", postBody, returnSecureToken: true }),
+    },
   );
   const body = await response.text();
   assert.equal(response.ok, true, body);
@@ -119,7 +128,6 @@ before(async () => {
   if (!AUTH_HOST || !FIRESTORE_HOST) return;
   if (getApps().length === 0) initializeApp({ projectId: PROJECT_ID });
   db = getFirestore();
-  repository = createFirestoreStudentRepository(db);
   const [firestoreHostname, firestorePort] = FIRESTORE_HOST.split(":");
   rulesEnvironment = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -227,7 +235,7 @@ integrationTest("teacher and parent cannot read private IP while admin can list 
     "parent-integration", googleClaims("parent@example.com"),
   ).firestore();
   const adminDb = rulesEnvironment.authenticatedContext(
-    ADMIN_AUTH.uid, googleClaims("beyle931224@gmail.com"),
+    ADMIN_UID, googleClaims("beyle931224@gmail.com"),
   ).firestore();
 
   await assert.rejects(getDoc(doc(teacherDb, "attemptPrivate", privateId)));
@@ -236,34 +244,71 @@ integrationTest("teacher and parent cannot read private IP while admin can list 
 });
 
 integrationTest("safe removal deletes no-attempt students and all admin links", async () => {
+  const admin = await googleUser({
+    sub: ADMIN_UID,
+    email: "beyle931224@gmail.com",
+  });
+  const nonAdmin = await anonymousUser();
   const student = await seedStudent({
     studentId: `delete-${randomUUID()}`,
     code: "20260809-030",
     name: "刪除測試",
-    adminUids: [ADMIN_AUTH.uid, "second-admin"],
+    adminUids: [ADMIN_UID, "second-admin"],
   });
-  await db.collection("studentProgress").doc(student.studentId).collection("quizzes")
-    .doc("periodic-table").set({ activeAttempt: { attemptId: "draft" }, reviewProgress: {} });
+  await Promise.all([
+    db.collection("studentProgress").doc(student.studentId).collection("quizzes")
+      .doc("periodic-table").set({ activeAttempt: { attemptId: "draft" }, reviewProgress: {} }),
+    db.collection("viewerAccess").doc("parent-delete-only").set({
+      role: "parent", studentIds: [student.studentId],
+    }),
+    db.collection("viewerAccess").doc("parent-delete-shared").set({
+      role: "parent", studentIds: [student.studentId, "student-kept"],
+    }),
+  ]);
 
-  assert.deepEqual(await removeOrDeactivateStudent({
-    repository, auth: ADMIN_AUTH, input: { studentId: student.studentId },
-  }), { status: "deleted" });
+  const denied = await callable(
+    "removeOrDeactivateStudent",
+    nonAdmin.idToken,
+    { studentId: student.studentId },
+    { expectedStatus: 403 },
+  );
+  assert.equal(denied.status, "PERMISSION_DENIED");
+  const invalid = await callable(
+    "removeOrDeactivateStudent",
+    admin.idToken,
+    { studentId: "../invalid" },
+    { expectedStatus: 400 },
+  );
+  assert.equal(invalid.status, "INVALID_ARGUMENT");
+  assert.deepEqual(
+    await callable("removeOrDeactivateStudent", admin.idToken, { studentId: student.studentId }),
+    { status: "deleted" },
+  );
   const snapshots = await Promise.all([
     db.collection("students").doc(student.studentId).get(),
     db.collection("studentEntries").doc(student.code).collection("names").doc(student.name).get(),
-    db.collection("adminStudentLinks").doc(ADMIN_AUTH.uid).collection("students").doc(student.studentId).get(),
+    db.collection("adminStudentLinks").doc(ADMIN_UID).collection("students").doc(student.studentId).get(),
     db.collection("adminStudentLinks").doc("second-admin").collection("students").doc(student.studentId).get(),
     db.collection("studentProgress").doc(student.studentId).collection("quizzes").get(),
+    db.collection("viewerAccess").doc("parent-delete-only").get(),
+    db.collection("viewerAccess").doc("parent-delete-shared").get(),
   ]);
   assert.equal(snapshots.slice(0, 4).every((snapshot) => !snapshot.exists), true);
   assert.equal(snapshots[4].empty, true);
+  assert.equal(snapshots[5].exists, false);
+  assert.deepEqual(snapshots[6].data().studentIds, ["student-kept"]);
 });
 
 integrationTest("any completed quiz deactivates the student and preserves its attempt pair", async () => {
+  const admin = await googleUser({
+    sub: `${ADMIN_UID}-deactivate`,
+    email: "beyle931224@gmail.com",
+  });
   const student = await seedStudent({
     studentId: `deactivate-${randomUUID()}`,
     code: "20260809-040",
     name: "停用測試",
+    adminUids: [ADMIN_UID, "second-admin"],
   });
   const attemptId = `kept_${randomUUID().replaceAll("-", "")}`;
   await Promise.all([
@@ -271,25 +316,49 @@ integrationTest("any completed quiz deactivates the student and preserves its at
       studentId: student.studentId, resultType: "placement", completed: true,
     }),
     db.collection("attemptPrivate").doc(attemptId).set({ maskedIp: "198.51.100.xxx" }),
+    db.collection("studentProgress").doc(student.studentId).collection("quizzes")
+      .doc("biology-cell-microscope-1").set({
+        activeAttempt: { attemptId: "unfinished" },
+        reviewProgress: { q1: { stage: 2, marker: "preserve" } },
+      }),
+    db.collection("viewerAccess").doc("parent-deactivate").set({
+      role: "parent", studentIds: [student.studentId],
+    }),
   ]);
 
-  assert.deepEqual(await removeOrDeactivateStudent({
-    repository, auth: ADMIN_AUTH, input: { studentId: student.studentId },
-  }), { status: "deactivated" });
-  const [studentSnapshot, entrySnapshot, publicSnapshot, privateSnapshot] = await Promise.all([
+  assert.deepEqual(
+    await callable("removeOrDeactivateStudent", admin.idToken, { studentId: student.studentId }),
+    { status: "deactivated" },
+  );
+  const [studentSnapshot, entrySnapshot, publicSnapshot, privateSnapshot, progressSnapshot,
+    firstLink, secondLink, parentAccess] = await Promise.all([
     db.collection("students").doc(student.studentId).get(),
     db.collection("studentEntries").doc(student.code).collection("names").doc(student.name).get(),
     db.collection("quizAttempts").doc(attemptId).get(),
     db.collection("attemptPrivate").doc(attemptId).get(),
+    db.collection("studentProgress").doc(student.studentId).collection("quizzes")
+      .doc("biology-cell-microscope-1").get(),
+    db.collection("adminStudentLinks").doc(ADMIN_UID).collection("students").doc(student.studentId).get(),
+    db.collection("adminStudentLinks").doc("second-admin").collection("students").doc(student.studentId).get(),
+    db.collection("viewerAccess").doc("parent-deactivate").get(),
   ]);
   assert.equal(studentSnapshot.data().active, false);
   assert.equal(entrySnapshot.data().active, false);
   assert.equal(publicSnapshot.exists, true);
   assert.equal(privateSnapshot.exists, true);
+  assert.equal(progressSnapshot.data().activeAttempt, null);
+  assert.deepEqual(progressSnapshot.data().reviewProgress, { q1: { stage: 2, marker: "preserve" } });
+  assert.equal(firstLink.exists, true);
+  assert.equal(secondLink.exists, true);
+  assert.deepEqual(parentAccess.data().studentIds, [student.studentId]);
 });
 
 integrationTest("submit racing safe removal never creates an orphan attempt record", async () => {
   const user = await anonymousUser();
+  const admin = await googleUser({
+    sub: `${ADMIN_UID}-race`,
+    email: "beyle931224@gmail.com",
+  });
   const student = await seedStudent({
     studentId: `race-${randomUUID()}`,
     code: "20260809-050",
@@ -306,7 +375,7 @@ integrationTest("submit racing safe removal never creates an orphan attempt reco
 
   const [submitOutcome, removeOutcome] = await Promise.allSettled([
     callable("submitQuizAttempt", user.idToken, submission),
-    removeOrDeactivateStudent({ repository, auth: ADMIN_AUTH, input: { studentId: student.studentId } }),
+    callable("removeOrDeactivateStudent", admin.idToken, { studentId: student.studentId }),
   ]);
   assert.equal(removeOutcome.status, "fulfilled");
   const [publicSnapshot, privateSnapshot] = await Promise.all([
