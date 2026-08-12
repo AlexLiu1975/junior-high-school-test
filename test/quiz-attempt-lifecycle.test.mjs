@@ -10,15 +10,23 @@ const questions = [
     id: "q1",
     n: 1,
     text: "第一題",
-    options: ["甲", "乙", "丙", "丁"],
-    correct: 1,
+    options: [
+      { id: "q1-o1", text: "甲", correct: false },
+      { id: "q1-o2", text: "乙", correct: true },
+      { id: "q1-o3", text: "丙", correct: false },
+      { id: "q1-o4", text: "丁", correct: false },
+    ],
   },
   {
     id: "q2",
     n: 2,
     text: "第二題",
-    options: ["戊", "己", "庚", "辛"],
-    correct: 3,
+    options: [
+      { id: "q2-o1", text: "戊", correct: false },
+      { id: "q2-o2", text: "己", correct: false },
+      { id: "q2-o3", text: "庚", correct: false },
+      { id: "q2-o4", text: "辛", correct: true },
+    ],
   },
 ];
 
@@ -71,23 +79,26 @@ test("a retry creates a fresh prepared quiz", () => {
   );
 });
 
-test("results map letters and text from the exact viewed attempt", () => {
+test("a restored prepared quiz keeps its saved navigation order", () => {
+  const lifecycle = createQuizAttemptLifecycle();
+  const prepared = startAttempt(lifecycle, alwaysZero);
+  const restored = prepared.map((question) => ({
+    ...question,
+    options: [...question.options].reverse(),
+  }));
+
+  assert.deepEqual(lifecycle.restoreAttempt(restored), restored);
+  assert.equal(lifecycle.questionAt(0).id, restored[0].id);
+  assert.deepEqual(
+    lifecycle.questionAt(0).options.map(({ id }) => id),
+    restored[0].options.map(({ id }) => id),
+  );
+});
+
+test("the lifecycle exposes no pre-submission scoring method", () => {
   const lifecycle = createQuizAttemptLifecycle();
   startAttempt(lifecycle, alwaysZero);
-
-  assert.deepEqual(lifecycle.resultsFor({ q1: 0, q2: 0 }), {
-    correctCount: 1,
-    wrongIds: ["q2"],
-    wrongAnswers: [
-      {
-        id: "q2",
-        attemptPosition: 1,
-        text: "第二題",
-        selectedAnswer: { letter: "A", text: "己" },
-        correctAnswer: { letter: "C", text: "辛" },
-      },
-    ],
-  });
+  assert.equal(Object.hasOwn(lifecycle, "resultsFor"), false);
 });
 
 test("an empty question bank returns the exact start error", () => {
@@ -104,11 +115,14 @@ test("an empty question bank returns the exact start error", () => {
 test("synchronous guards make finish, retry, and clear mutually exclusive", () => {
   const lifecycle = createQuizAttemptLifecycle();
 
+  assert.equal(lifecycle.canMutateAttempt(), true);
   assert.equal(lifecycle.claimFinish(), true);
+  assert.equal(lifecycle.canMutateAttempt(), false);
   assert.equal(lifecycle.claimFinish(), false);
   assert.equal(lifecycle.claimStart(), false);
   assert.equal(lifecycle.claimClear(), false);
   lifecycle.releaseFinish();
+  assert.equal(lifecycle.canMutateAttempt(), true);
 
   assert.equal(lifecycle.claimStart(), true);
   assert.equal(lifecycle.claimClear(), false);

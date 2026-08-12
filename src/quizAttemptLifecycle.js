@@ -1,6 +1,4 @@
-import { prepareQuiz, scoreQuiz } from "./quizRandomization.js";
-
-const LETTERS = ["A", "B", "C", "D"];
+import { prepareQuiz } from "./quizRandomization.js";
 
 export const EMPTY_QUIZ_MESSAGE = "目前沒有可用的題目。";
 
@@ -19,6 +17,7 @@ export function createQuizAttemptLifecycle() {
   };
 
   return {
+    canMutateAttempt: () => activeOperation === null,
     claimStart: () => claim("start"),
     releaseStart: () => release("start"),
     claimFinish: () => claim("finish"),
@@ -38,6 +37,14 @@ export function createQuizAttemptLifecycle() {
       }
     },
 
+    restoreAttempt(savedQuestions) {
+      if (!Array.isArray(savedQuestions) || savedQuestions.length === 0) {
+        throw new Error("invalid-restored-questions");
+      }
+      questions = savedQuestions;
+      return questions;
+    },
+
     move(current, offset) {
       if (questions.length === 0) return 0;
       return Math.max(0, Math.min(current + offset, questions.length - 1));
@@ -47,33 +54,5 @@ export function createQuizAttemptLifecycle() {
       return questions[index];
     },
 
-    resultsFor(answers) {
-      const { correctCount, wrongIds } = scoreQuiz(questions, answers);
-      const wrongAnswers = questions
-        .map((question, index) => ({ question, index }))
-        .filter(({ question }) => wrongIds.includes(question.id))
-        .map(({ question, index }) => {
-          const selectedIndex = answers[question.id];
-          const selectedOption = question.options[selectedIndex];
-          const correctIndex = question.options.findIndex(
-            ({ isCorrect }) => isCorrect,
-          );
-
-          return {
-            id: question.id,
-            attemptPosition: index + 1,
-            text: question.text,
-            selectedAnswer: selectedOption
-              ? { letter: LETTERS[selectedIndex], text: selectedOption.text }
-              : null,
-            correctAnswer: {
-              letter: LETTERS[correctIndex],
-              text: question.options[correctIndex].text,
-            },
-          };
-        });
-
-      return { correctCount, wrongIds, wrongAnswers };
-    },
   };
 }

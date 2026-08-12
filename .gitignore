@@ -16,3 +16,4 @@ dist-ssr
 .DS_Store
 firebase-debug.log
 firestore-debug.log
+functions/.runtimeconfig.json

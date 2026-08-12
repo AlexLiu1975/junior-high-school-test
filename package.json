@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test",
+    "test:functions": "npm --prefix functions test",
+    "test:emulators": "firebase emulators:exec --only auth,firestore,functions \"node --test functions/test/emulator-integration.test.mjs test/firestore.rules.test.mjs\"",
     "test:rules": "firebase emulators:exec --only firestore \"node --test test/firestore.rules.test.mjs\"",
+    "verify": "npm test && npm run test:functions && npm run test:emulators && npm run lint && npm run build",
     "lint": "oxlint",
     "preview": "vite preview"
   },

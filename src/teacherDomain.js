@@ -9,7 +9,8 @@ export function getPortalState({
   adminEmail = ADMIN_EMAIL,
 }) {
   if (!user) return "signed-out";
-  if (user.email === adminEmail && user.emailVerified) return "admin";
+  const isGoogleUser = user.providerData?.some(({ providerId }) => providerId === "google.com") === true;
+  if (user.email === adminEmail && user.emailVerified && isGoogleUser) return "admin";
   if (access?.role === "teacher") return "teacher";
   if (access?.role === "parent") return "parent";
   if (request?.status === "pending") return "pending";

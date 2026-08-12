@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 import {
   addDoc,
   collection,
@@ -12,7 +13,11 @@ import {
 import {
   getFirebaseConfig,
   getMissingFirebaseConfigKeys,
-} from "./firebaseConfig";
+} from "./firebaseConfig.js";
+import {
+  createStudentFunctionCallers,
+  STUDENT_FUNCTIONS_REGION,
+} from "./studentFunctions.js";
 
 // 這些值請到 Firebase 主控台 → 專案設定 → 一般 → 你的應用程式（Web） 取得，
 // 填入專案根目錄的 .env 檔（參考 .env.example）。這些值本身不是機密資訊，
@@ -23,6 +28,13 @@ const missingConfigKeys = getMissingFirebaseConfigKeys(firebaseConfig);
 const app = missingConfigKeys.length === 0 ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
+export function createStudentFunctions(appInstance, getFunctionsFactory = getFunctions) {
+  return appInstance ? getFunctionsFactory(appInstance, STUDENT_FUNCTIONS_REGION) : null;
+}
+const functions = createStudentFunctions(app);
+const studentFunctionCallers = functions
+  ? createStudentFunctionCallers(functions)
+  : null;
 
 function requireFirebase() {
   if (!app) {
@@ -56,6 +68,28 @@ export function ensureSignedIn() {
     });
   });
 }
+
+export function loadStudentProgress(input) {
+  requireFirebase();
+  return studentFunctionCallers.loadStudentProgress(input);
+}
+
+export function saveStudentProgress(input) {
+  requireFirebase();
+  return studentFunctionCallers.saveStudentProgress(input);
+}
+
+export function submitQuizAttempt(input) {
+  requireFirebase();
+  return studentFunctionCallers.submitQuizAttempt(input);
+}
+
+/*
+ * Task 4 compatibility boundary:
+ * App.jsx still consumes these direct Firestore helpers until the biology
+ * renderer is adapted to StudentQuizShell in Task 5. New shared-shell code
+ * must use only the callable wrappers above.
+ */
 
 const progressDocRef = (uid, quizId) => doc(db, "users", uid, "quizProgress", quizId);
 

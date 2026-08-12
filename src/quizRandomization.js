@@ -18,29 +18,12 @@ export function prepareQuiz(questions, random = Math.random) {
     n: question.n,
     text: question.text,
     options: shuffleCopy(
-      question.options.map((text, index) => ({
+      question.options.map(({ id, text }) => ({
+        id,
         text,
-        isCorrect: index === question.correct,
       })),
       random,
     ),
   }));
   return shuffleCopy(prepared, random);
-}
-
-export function isAnswerCorrect(question, selectedIndex) {
-  return question.options[selectedIndex]?.isCorrect === true;
-}
-
-export function scoreQuiz(questions, answers) {
-  const wrongIds = [];
-  let correctCount = 0;
-  for (const question of questions) {
-    if (isAnswerCorrect(question, answers[question.id])) {
-      correctCount += 1;
-    } else {
-      wrongIds.push(question.id);
-    }
-  }
-  return { correctCount, wrongIds };
 }
