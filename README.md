@@ -102,3 +102,18 @@ Emulator 固定連接埠：Auth `9099`、Firestore `8080`、Functions `5001`。�
 ## 人工部署檢核
 
 正式部署前由操作人員再次確認：專案 ID、Firestore `nam5`、與其配對的 `us-central1`、Blaze/Billing、四個 Callable、`maxInstances: 3`、Rules/indexes diff 與預算警示。Spark 方案下正式 Functions 部署仍遭阻擋；未取得明確升級與部署核准前，不要執行這些寫入操作。確認後才分別部署 Functions／Rules／indexes，再發布已審查的分支並執行三試卷公開 E2E。
+
+## 守護時間（家長手機時間管理）
+
+本 repo 另外收錄一套獨立的家長管制系統：家長在網頁後台設定小孩可用手機的時段與每日
+額度，時間一到小孩手機自動鎖定，並可遠端一鍵鎖定、查看使用明細、審核小孩的延長申請。
+支援 iOS 與 Android。
+
+- 架構、規則、部署與雙平台限制說明：[`guardian/README.md`](guardian/README.md)
+- 小孩端 App（Expo）：[`mobile/README.md`](mobile/README.md)
+- 家長後台頁面：`guardian.html`（隨 `npm run build` 一併輸出）
+
+不需要 Firebase 設定即可預覽：`npx vite preview` 後開啟
+`/junior-high-school-test/guardian.html?demo=1`，示範模式會在瀏覽器內執行同一套後端邏輯。
+
+規則引擎與服務層測試：`node --test "guardian/test/*.test.mjs"`

@@ -13,6 +13,7 @@ export default defineConfig({
         home: fileURLToPath(new URL('./index.html', import.meta.url)),
         quiz: fileURLToPath(new URL('./quiz.html', import.meta.url)),
         teacher: fileURLToPath(new URL('./teacher.html', import.meta.url)),
+        guardian: fileURLToPath(new URL('./guardian.html', import.meta.url)),
       },
     },
   },

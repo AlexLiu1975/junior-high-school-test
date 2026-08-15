@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "守護時間",
+    "slug": "guardian-child",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "com.example.guardian.child",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSFamilyControlsUsageDescription": "用來依照家長設定的時間管理這支手機的使用時間。"
+      },
+      "entitlements": {
+        "com.apple.developer.family-controls": true
+      }
+    },
+    "android": {
+      "package": "com.example.guardian.child",
+      "permissions": [
+        "android.permission.PACKAGE_USAGE_STATS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
+    }
+  }
+}

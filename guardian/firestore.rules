@@ -1,0 +1,56 @@
+rules_version = '2';
+
+// Guardian (家長管制) data model.
+//
+// Writes always go through the callable API, which is where policy validation,
+// quota accounting and authorization live. These rules therefore grant parents
+// read-only access to their own family and deny everything else — a compromised
+// client cannot rewrite a schedule, forge usage, or clear a lock by writing to
+// Firestore directly.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isDevice() {
+      return signedIn() && request.auth.token.role == 'device';
+    }
+
+    function isParentOf(familyId) {
+      return signedIn()
+        && !isDevice()
+        && exists(/databases/$(database)/documents/guardianFamilies/$(familyId))
+        && request.auth.uid in get(/databases/$(database)/documents/guardianFamilies/$(familyId)).data.parentUids;
+    }
+
+    match /guardianFamilies/{familyId} {
+      allow read: if isParentOf(familyId);
+      allow write: if false;
+
+      // Children, policies, devices, usage, requests and commands are all
+      // readable by the family's parents so the dashboard can subscribe to live
+      // updates; the device client reads the same data through callables only.
+      match /{collection}/{documentId} {
+        allow read: if isParentOf(familyId)
+          && collection in ['children', 'policies', 'devices', 'usage', 'requests', 'commands'];
+        allow write: if false;
+      }
+
+      // The audit log and the push outbox are server-only.
+      match /audit/{entryId} {
+        allow read, write: if false;
+      }
+      match /outbox/{entryId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Pairing codes are credentials: never readable by any client. A device
+    // redeems one through the guardianEnrollDevice callable.
+    match /guardianPairings/{code} {
+      allow read, write: if false;
+    }
+  }
+}

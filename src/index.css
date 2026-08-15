@@ -8,3 +8,52 @@
 body {
   margin: 0;
 }
+
+/*
+ * Chart tokens for the guardian dashboard. Charts are written against these
+ * roles rather than raw hex so the dark steps swap in one place. The dark
+ * column is the same hues re-stepped for a dark surface, not an automatic flip.
+ */
+.guardian-viz {
+  color-scheme: light;
+  --viz-surface: #fcfcfb;
+  --viz-grid: #e4e3df;
+  --viz-text-primary: #0b0b0b;
+  --viz-text-secondary: #52514e;
+  --viz-text-muted: #77766f;
+  --viz-series-1: #2a78d6;
+  --viz-series-2: #eb6834;
+  --viz-series-3: #1baf7a;
+  --viz-series-4: #eda100;
+  --viz-series-5: #e87ba4;
+  --viz-series-6: #008300;
+  --viz-seq-100: #cde2fb;
+  --viz-seq-200: #9ec5f4;
+  --viz-seq-300: #6da7ec;
+  --viz-seq-400: #3987e5;
+  --viz-seq-500: #256abf;
+  --viz-seq-600: #184f95;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .guardian-viz {
+    color-scheme: dark;
+    --viz-surface: #1a1a19;
+    --viz-grid: #383835;
+    --viz-text-primary: #ffffff;
+    --viz-text-secondary: #c3c2b7;
+    --viz-text-muted: #9b9a90;
+    --viz-series-1: #3987e5;
+    --viz-series-2: #d95926;
+    --viz-series-3: #199e70;
+    --viz-series-4: #c98500;
+    --viz-series-5: #d55181;
+    --viz-series-6: #008300;
+    --viz-seq-100: #184f95;
+    --viz-seq-200: #1c5cab;
+    --viz-seq-300: #256abf;
+    --viz-seq-400: #2a78d6;
+    --viz-seq-500: #3987e5;
+    --viz-seq-600: #5598e7;
+  }
+}
