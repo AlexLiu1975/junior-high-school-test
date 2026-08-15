@@ -1,4 +1,7 @@
-import { QUIZ_DEFINITION as BIOLOGY_QUIZ } from "./biologyDefinition.js";
+import {
+  LEGACY_BIOLOGY_DEFINITIONS,
+  QUIZ_DEFINITION as BIOLOGY_QUIZ,
+} from "./biologyDefinition.js";
 import { ENGLISH_REVIEW_2 } from "./englishReview2Definition.js";
 import { validateMultipleChoiceSubmission } from "./multipleChoiceSubmission.js";
 import { PERIODIC_TABLE_QUIZ } from "./periodicTableDefinition.js";
@@ -22,13 +25,18 @@ function deepFreeze(value) {
   return value;
 }
 
-const QUIZ_DEFINITIONS = deepFreeze([
+const CURRENT_QUIZ_DEFINITIONS = deepFreeze([
   BIOLOGY_QUIZ,
   ENGLISH_REVIEW_2,
   PERIODIC_TABLE_QUIZ,
 ].map(cloneDefinition));
 
-export const QUIZ_CATALOG = deepFreeze(QUIZ_DEFINITIONS.map((definition) => ({
+const REGISTERED_QUIZ_DEFINITIONS = deepFreeze([
+  ...CURRENT_QUIZ_DEFINITIONS,
+  ...LEGACY_BIOLOGY_DEFINITIONS.map(cloneDefinition),
+]);
+
+export const QUIZ_CATALOG = deepFreeze(CURRENT_QUIZ_DEFINITIONS.map((definition) => ({
   id: definition.id,
   version: definition.version,
   kind: definition.kind,
@@ -37,10 +45,20 @@ export const QUIZ_CATALOG = deepFreeze(QUIZ_DEFINITIONS.map((definition) => ({
   catalogDescription: definition.catalogDescription,
 })));
 
-const QUIZ_BY_ID = new Map(QUIZ_DEFINITIONS.map((definition) => [
-  definition.id,
-  new Map([[definition.version, definition]]),
-]));
+function buildQuizById(definitions) {
+  const quizById = new Map();
+  for (const definition of definitions) {
+    const versions = quizById.get(definition.id) ?? new Map();
+    if (versions.has(definition.version)) {
+      throw new Error(`duplicate quiz definition: ${definition.id}@${definition.version}`);
+    }
+    versions.set(definition.version, definition);
+    quizById.set(definition.id, versions);
+  }
+  return quizById;
+}
+
+const QUIZ_BY_ID = buildQuizById(REGISTERED_QUIZ_DEFINITIONS);
 
 const COMMON_SUBMISSION_FIELDS = [
   "studentCode",

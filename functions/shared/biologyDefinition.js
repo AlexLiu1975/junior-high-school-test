@@ -1,9 +1,9 @@
 export const QUIZ_ID = "biology-cell-microscope-1";
-export const QUIZ_VERSION = 1;
+export const QUIZ_VERSION = 2;
 export const QUIZ_TITLE = "第1回 第1、2單元｜細胞與顯微鏡";
 export const QUIZ_CATALOG_DESCRIPTION = "細胞構造、物質進出細胞與顯微鏡操作複習";
 
-const RAW_QUESTIONS = [
+const RAW_QUESTIONS_V1 = [
   { id: "q1", n: 1, text: "關於英國科學家虎克的敘述，下列何者錯誤？", options: ["他是史上第一位描述細胞的科學家", "他用自製的顯微鏡觀察軟木塞薄片", "他所看見的格狀構造是植物細胞的細胞膜（壁）", "他所發現的細胞已不具生命現象"], correct: 2 },
   { id: "q2", n: 2, text: "當阿拉蕾長時間配戴隱形眼鏡造成眼睛過於乾澀，通常會點上一、兩滴人工淚液以舒緩症狀。請問人工淚液與下列何種液體成分相似，所以可減緩眼睛乾澀的問題？", options: ["礦泉水", "白開水", "生理食鹽水", "濃食鹽水"], correct: 2 },
   { id: "q3", n: 3, text: "下列何種物質不需要經由細胞膜上的蛋白質通道，可以直接利用擴散作用進出細胞？", options: ["二氧化碳", "蛋白質", "礦物質", "葡萄糖"], correct: 0 },
@@ -26,22 +26,51 @@ const RAW_QUESTIONS = [
   { id: "q20", n: 20, text: "右圖是解剖顯微鏡觀察已麻醉的蜜蜂之影像，小蓮該如何操作顯微鏡，才能讓蜜蜂在視野正中央？", options: ["更換倍率較高的鏡頭", "轉動調節輪", "將視野亮度調亮", "移動標本"], correct: 3 },
 ];
 
-export const QUIZ_DEFINITION = {
-  id: QUIZ_ID,
-  version: QUIZ_VERSION,
-  kind: "multiple-choice",
-  orderingPolicy: "permutation",
-  subject: "Biology",
-  title: QUIZ_TITLE,
-  catalogDescription: QUIZ_CATALOG_DESCRIPTION,
-  supportsReviewProgress: true,
-  legacyAttemptQuizIds: ["cell-microscope-quiz1"],
-  questions: RAW_QUESTIONS.map((question) => ({
+const RAW_QUESTIONS_V2 = RAW_QUESTIONS_V1.map((question) => {
+  if (question.id !== "q14") return question;
+  return {
     ...question,
-    options: question.options.map((text, index) => ({
-      id: `${question.id}-o${index + 1}`,
-      text,
-      correct: index === question.correct,
+    options: [
+      "最大的放大倍率：甲＞乙",
+      "甲看到的影像較為立體",
+      "乙看到影像的方位與實物相同",
+      "甲、乙皆適合觀察細胞標本",
+    ],
+    correct: 1,
+  };
+});
+
+function buildDefinition({ version, resultReviewScope, questions }) {
+  return {
+    id: QUIZ_ID,
+    version,
+    kind: "multiple-choice",
+    orderingPolicy: "permutation",
+    subject: "Biology",
+    title: QUIZ_TITLE,
+    catalogDescription: QUIZ_CATALOG_DESCRIPTION,
+    supportsReviewProgress: true,
+    legacyAttemptQuizIds: ["cell-microscope-quiz1"],
+    resultReviewScope,
+    questions: questions.map((question) => ({
+      ...question,
+      options: question.options.map((text, index) => ({
+        id: `${question.id}-o${index + 1}`,
+        text,
+        correct: index === question.correct,
+      })),
     })),
-  })),
-};
+  };
+}
+
+export const LEGACY_BIOLOGY_DEFINITIONS = [buildDefinition({
+  version: 1,
+  resultReviewScope: "legacy-score",
+  questions: RAW_QUESTIONS_V1,
+})];
+
+export const QUIZ_DEFINITION = buildDefinition({
+  version: QUIZ_VERSION,
+  resultReviewScope: "all",
+  questions: RAW_QUESTIONS_V2,
+});
