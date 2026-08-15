@@ -1,7 +1,7 @@
 // Client-safe question content. Answer keys remain in Functions only.
 export const BIOLOGY_QUIZ_CONTENT = {
   "id": "biology-cell-microscope-1",
-  "version": 1,
+  "version": 2,
   "kind": "multiple-choice",
   "orderingPolicy": "permutation",
   "subject": "Biology",
@@ -318,7 +318,7 @@ export const BIOLOGY_QUIZ_CONTENT = {
       "options": [
         {
           "id": "q14-o1",
-          "text": "最大的放大倍率：甲＜乙"
+          "text": "最大的放大倍率：甲＞乙"
         },
         {
           "id": "q14-o2",
