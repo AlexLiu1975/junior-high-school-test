@@ -9,6 +9,10 @@ function invalidAttempt() {
   throw new Error("invalid-biology-attempt");
 }
 
+function invalidResult() {
+  throw new Error("invalid-biology-result");
+}
+
 function cloneAnswers(answers) {
   return Object.fromEntries(Object.entries(answers ?? {}));
 }
@@ -137,46 +141,84 @@ export const biologyQuizAdapter = Object.freeze({
       answers: submission.answers,
       currentQuestionIndex: currentAttempt.currentQuestionIndex,
     });
+    const confirmed = biologyQuizAdapter.renderResult(result);
     return {
       attempt,
-      reviewProgress: biologyQuizAdapter.updateReviewProgress({
-        previous: submission.reviewProgress ?? {},
-        result,
-      }),
-      result: biologyQuizAdapter.renderResult(result),
+      reviewProgress: confirmed.reviewAvailable
+        ? biologyQuizAdapter.updateReviewProgress({
+          previous: submission.reviewProgress ?? {},
+          attempt,
+          result: confirmed,
+        })
+        : structuredClone(submission.reviewProgress ?? {}),
+      result: confirmed,
     };
   },
 
   renderResult(result) {
+    const hasReview = Object.hasOwn(result ?? {}, "review");
     if (
       result?.resultType !== "score"
       || !Number.isFinite(result.score)
+      || result.score < 0
+      || result.score > 100
       || !Number.isInteger(result.correctCount)
       || !Number.isInteger(result.wrongCount)
-      || !Array.isArray(result.review)
-      || result.review.length !== result.wrongCount
+      || result.correctCount < 0
+      || result.wrongCount < 0
+      || result.correctCount + result.wrongCount !== questionsById.size
+      || typeof result.reviewAvailable !== "boolean"
+    ) {
+      invalidResult();
+    }
+    if (result.reviewAvailable === false) {
+      if (hasReview) invalidResult();
+      return {
+        resultType: "score",
+        score: result.score,
+        correctCount: result.correctCount,
+        wrongCount: result.wrongCount,
+        reviewAvailable: false,
+      };
+    }
+    if (
+      !Array.isArray(result.review)
+      || result.review.length !== questionsById.size
       || result.review.some((item) => (
         item === null
         || typeof item !== "object"
-        || Object.keys(item).some((key) => !["questionId", "correctOptionId"].includes(key))
-        || !questionsById.get(item.questionId)?.options.some(({ id }) => id === item.correctOptionId)
+        || Array.isArray(item)
+        || Object.keys(item).some(
+          (key) => !["questionId", "correctOptionId", "explanation"].includes(key),
+        )
+        || Object.keys(item).length !== 3
+        || !questionsById.get(item.questionId)?.options.some(
+          ({ id }) => id === item.correctOptionId,
+        )
+        || typeof item.explanation !== "string"
+        || item.explanation.trim().length === 0
       ))
-      || new Set(result.review.map((item) => item.questionId)).size !== result.review.length
+      || new Set(result.review.map((item) => item.questionId)).size !== questionsById.size
     ) {
-      throw new Error("invalid-biology-result");
+      invalidResult();
     }
     return {
       resultType: "score",
       score: result.score,
       correctCount: result.correctCount,
       wrongCount: result.wrongCount,
+      reviewAvailable: true,
       review: result.review.map((item) => ({ ...item })),
     };
   },
 
-  updateReviewProgress({ previous, result, today = new Date() }) {
+  updateReviewProgress({ previous, attempt, result, today = new Date() }) {
     const confirmed = biologyQuizAdapter.renderResult(result);
-    const wrongIds = new Set(confirmed.review.map(({ questionId }) => questionId));
+    if (!confirmed.reviewAvailable) return structuredClone(previous ?? {});
+    const rows = biologyQuizAdapter.buildAnswerReviewDisplay({ attempt, result: confirmed });
+    const wrongIds = new Set(
+      rows.filter(({ isCorrect }) => !isCorrect).map(({ id }) => id),
+    );
     const next = structuredClone(previous ?? {});
     for (const questionId of questionsById.keys()) {
       const prior = next[questionId] ?? { errorCount: 0, stage: -1 };
@@ -202,18 +244,39 @@ export const biologyQuizAdapter = Object.freeze({
     return next;
   },
 
-  buildWrongAnswerDisplay({ attempt, result }) {
+  buildAnswerReviewDisplay({ attempt, result }) {
     const confirmed = biologyQuizAdapter.renderResult(result);
-    return confirmed.review.map(({ questionId, correctOptionId }) => {
-      const question = attempt.questions.find(({ id }) => id === questionId);
-      if (!question) invalidAttempt();
-      const selectedIndex = question.options.findIndex(({ id }) => id === attempt.answers[questionId]);
-      const correctOptionPosition = question.options.findIndex(({ id }) => id === correctOptionId);
+    if (!confirmed.reviewAvailable) return [];
+    if (
+      !Array.isArray(attempt?.questions)
+      || attempt.questions.length !== questionsById.size
+      || new Set(attempt.questions.map(({ id }) => id)).size !== questionsById.size
+      || attempt.answers === null
+      || typeof attempt.answers !== "object"
+      || Array.isArray(attempt.answers)
+    ) {
+      invalidAttempt();
+    }
+    const reviewByQuestionId = new Map(
+      confirmed.review.map((item) => [item.questionId, item]),
+    );
+    const rows = attempt.questions.map((question, index) => {
+      const review = reviewByQuestionId.get(question.id);
+      if (!review || !Array.isArray(question.options)) invalidAttempt();
+      const hasSelectedAnswer = Object.hasOwn(attempt.answers, question.id);
+      const selectedIndex = question.options.findIndex(
+        ({ id }) => id === attempt.answers[question.id],
+      );
+      if (hasSelectedAnswer && selectedIndex < 0) invalidAttempt();
+      const correctOptionPosition = question.options.findIndex(
+        ({ id }) => id === review.correctOptionId,
+      );
       if (correctOptionPosition < 0) invalidAttempt();
       return {
-        id: questionId,
-        attemptPosition: attempt.questions.findIndex(({ id }) => id === questionId) + 1,
+        id: question.id,
+        attemptPosition: index + 1,
         text: question.text,
+        isCorrect: selectedIndex === correctOptionPosition,
         selectedAnswer: selectedIndex < 0 ? null : {
           letter: "ABCD"[selectedIndex],
           text: question.options[selectedIndex].text,
@@ -222,8 +285,18 @@ export const biologyQuizAdapter = Object.freeze({
           letter: "ABCD"[correctOptionPosition],
           text: question.options[correctOptionPosition].text,
         },
+        explanation: review.explanation,
       };
     });
+    const wrongCount = rows.filter(({ isCorrect }) => !isCorrect).length;
+    if (wrongCount !== confirmed.wrongCount) invalidResult();
+    return rows;
+  },
+
+  buildWrongAnswerDisplay({ attempt, result }) {
+    return biologyQuizAdapter.buildAnswerReviewDisplay({ attempt, result })
+      .filter(({ isCorrect }) => !isCorrect)
+      .map(({ isCorrect: _isCorrect, explanation: _explanation, ...row }) => row);
   },
 });
 
