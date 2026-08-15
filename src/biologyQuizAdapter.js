@@ -166,6 +166,7 @@ export const biologyQuizAdapter = Object.freeze({
       throw new Error("invalid-biology-result");
     }
     return {
+      resultType: "score",
       score: result.score,
       correctCount: result.correctCount,
       wrongCount: result.wrongCount,

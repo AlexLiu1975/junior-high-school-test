@@ -100,29 +100,30 @@ test("biology malformed saved orders always use the stable restore error", () =>
 });
 
 test("biology uses only the server-confirmed score result", () => {
-  assert.deepEqual(
-    biologyQuizAdapter.renderResult({
-      resultType: "score",
-      score: 85,
-      correctCount: 17,
-      wrongCount: 3,
-      review: [
-        { questionId: "q1", correctOptionId: "q1-o3" },
-        { questionId: "q2", correctOptionId: "q2-o3" },
-        { questionId: "q3", correctOptionId: "q3-o1" },
-      ],
-      ignored: "server transport detail",
-    }),
-    {
-      score: 85,
-      correctCount: 17,
-      wrongCount: 3,
-      review: [
-        { questionId: "q1", correctOptionId: "q1-o3" },
-        { questionId: "q2", correctOptionId: "q2-o3" },
-        { questionId: "q3", correctOptionId: "q3-o1" },
-      ],
-    },
+  const rawResult = {
+    resultType: "score",
+    score: 95,
+    correctCount: 19,
+    wrongCount: 1,
+    review: [{ questionId: "q1", correctOptionId: "q1-o3" }],
+    ignored: "server transport detail",
+  };
+  const normalized = biologyQuizAdapter.renderResult(rawResult);
+
+  assert.deepEqual(normalized, {
+    resultType: "score",
+    score: 95,
+    correctCount: 19,
+    wrongCount: 1,
+    review: [{ questionId: "q1", correctOptionId: "q1-o3" }],
+  });
+  assert.equal(
+    biologyQuizAdapter.updateReviewProgress({
+      previous: {},
+      result: normalized,
+      today: new Date(2026, 7, 15),
+    }).q1.lastResult,
+    "wrong",
   );
   assert.throws(
     () => biologyQuizAdapter.renderResult({ score: 100, correctCount: 20, wrongCount: 0 }),
