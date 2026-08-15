@@ -14,12 +14,14 @@ After a student successfully submits **第1回　第1、2單元｜細胞與顯�
 - Do not create a permanent student explanation-history page.
 - Do not write explanations into Firestore attempts, progress, pending submissions, or other persistent client-visible records.
 - Do not change Firestore Rules, Firestore indexes, Billing settings, student identity, attempt identity, or the duplicate-attempt policy.
+- Correct question 14 so option A reads `最大的放大倍率：甲＞乙` and option B is the sole correct answer.
+- Publish the corrected Biology content as version 2 while retaining version 1 server-side for exact legacy retries.
 
 ## Architecture
 
 ### Server-only content
 
-Each question in `functions/shared/biologyDefinition.js` gains a non-empty `explanation`. The explanation is part of the trusted Functions definition alongside the correct-answer key. It must not be imported by `src`, copied into `src/biologyQuizContent.js`, or emitted in an initial browser bundle.
+Each version-2 question in `functions/shared/biologyDefinition.js` gains a non-empty `explanation`. The explanation is part of the trusted Functions definition alongside the correct-answer key. It must not be imported by `src`, copied into `src/biologyQuizContent.js`, or emitted in an initial browser bundle. The registry keeps the original version-1 definition so a stored version-1 result is never reconstructed with version-2 question 14.
 
 The existing client-safe content parity logic continues to strip both correct-answer and explanation fields. The answer-key boundary tests must continue to prove that neither field crosses into the pre-submit browser graph or production chunks.
 
@@ -115,5 +117,6 @@ Firestore Rules and indexes remain unchanged. Deployment must occur only after l
 
 - A permanent student history/detail page for explanations.
 - Teacher-side display of full answer explanations.
-- Changing quiz questions, answer choices, scoring, randomization, Ebbinghaus intervals, or student access.
+- Changing quiz questions, answer choices, or scoring other than the explicitly approved question-14 correction and version bump.
+- Changing randomization, Ebbinghaus intervals, or student access.
 - Reusing `history.html` answer keys or history-subject content.
