@@ -28,7 +28,6 @@
 - Modify: `functions/shared/biologyDefinition.js`
 - Modify: `functions/shared/quizRegistry.js`
 - Modify: `test/quiz-registry.test.mjs`
-- Modify: `test/answer-key-boundary.test.mjs`
 
 **Interfaces:**
 - Produces: current `QUIZ_DEFINITION` version 2 and `LEGACY_BIOLOGY_DEFINITIONS` containing version 1.
@@ -48,11 +47,9 @@ assert.equal(legacy.questions[13].options[0].text, "最大的放大倍率：甲�
 assert.equal(legacy.questions[13].options[2].correct, true);
 ```
 
-Update the parity test's strip function to remove `resultReviewScope` as server-only metadata.
-
 - [ ] **Step 2: Verify RED**
 
-Run `node --test test/quiz-registry.test.mjs test/answer-key-boundary.test.mjs`.
+Run `node --test test/quiz-registry.test.mjs`.
 
 Expected: FAIL because version 2 and a legacy definition map do not exist.
 
@@ -77,14 +74,14 @@ In `quizRegistry.js`, keep a current-definition list for `QUIZ_CATALOG`, but bui
 
 - [ ] **Step 4: Verify GREEN**
 
-Run `node --test test/quiz-registry.test.mjs test/answer-key-boundary.test.mjs`.
+Run `node --test test/quiz-registry.test.mjs`.
 
 Expected: all focused tests PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add functions/shared/biologyDefinition.js functions/shared/quizRegistry.js test/quiz-registry.test.mjs test/answer-key-boundary.test.mjs
+git add functions/shared/biologyDefinition.js functions/shared/quizRegistry.js test/quiz-registry.test.mjs
 git commit -m "Version the corrected Biology quiz"
 ```
 
@@ -117,6 +114,7 @@ assert.match(QUIZ_DEFINITION.questions[13].explanation, /解剖顯微鏡.*立體
 ```
 
 Add `虎克觀察的是軟木栓中已死亡細胞留下的細胞壁格室` to the production-bundle marker denylist.
+Update the parity test's strip function to remove `resultReviewScope` as server-only metadata and compare the version-2 client-safe content with the stripped current definition.
 
 - [ ] **Step 2: Verify RED**
 
@@ -177,10 +175,10 @@ git commit -m "Add trusted Biology explanations"
 - Modify: `functions/test/emulator-integration.test.mjs`
 
 **Interfaces:**
-- Produces: `buildResultReview(definition, result)`.
+- Produces: `buildResultReview(definition, result)` without changing the existing English response shape.
 - Biology v2: `{ reviewAvailable: true, review: ReviewItem[20] }`.
 - Biology v1: `{ reviewAvailable: false }`.
-- English: retains wrong-question-only review.
+- English: retains exactly its current `{ review }` wrong-question-only response with no new `reviewAvailable` field.
 
 - [ ] **Step 1: Write failing direct/retry tests**
 
@@ -218,10 +216,13 @@ export function buildResultReview(definition, result) {
   if (definition.resultReviewScope === "legacy-score") {
     return { reviewAvailable: false };
   }
-  const ids = definition.resultReviewScope === "all"
-    ? definition.questions.map(({ id }) => id)
-    : result.wrongIds;
-  return { reviewAvailable: true, review: buildReviewPayload(definition, ids) };
+  if (definition.resultReviewScope === "all") {
+    return {
+      reviewAvailable: true,
+      review: buildReviewPayload(definition, definition.questions.map(({ id }) => id)),
+    };
+  }
+  return { review: buildReviewPayload(definition, result.wrongIds) };
 }
 ```
 
@@ -251,7 +252,7 @@ git commit -m "Return complete Biology review after submission"
 **Interfaces:**
 - Produces normalized v2 result with `reviewAvailable: true` and 20 review items.
 - Produces `buildAnswerReviewDisplay({ attempt, result })` returning 20 attempt-ordered rows.
-- Accepts legacy `reviewAvailable: false` as score-only and returns no fabricated rows.
+- Accepts legacy `reviewAvailable: false` as score-only, returns no fabricated rows, and preserves prior review progress unchanged.
 
 - [ ] **Step 1: Write failing adapter tests**
 
@@ -267,7 +268,7 @@ assert.equal(rows[1].selectedAnswer, null);
 assert.match(rows[0].explanation, /\S/);
 ```
 
-Reject 19 items, duplicate question IDs, cross-question correct option IDs, extra fields, and empty explanations. Verify legacy score-only normalization returns no rows.
+Reject 19 items, duplicate question IDs, cross-question correct option IDs, extra fields, and empty explanations. Verify legacy score-only normalization returns no rows and `restoreConfirmedSubmission` leaves its input `reviewProgress` unchanged.
 
 - [ ] **Step 2: Verify RED**
 
@@ -288,7 +289,7 @@ Require the complete Biology question-ID set when `reviewAvailable === true`. Ma
 }
 ```
 
-Derive Ebbinghaus wrong IDs from rows where `isCorrect === false`; do not use the full review item count as the wrong count.
+Derive Ebbinghaus wrong IDs from rows where `isCorrect === false`; do not use the full review item count as the wrong count. When `reviewAvailable === false`, bypass `updateReviewProgress` and preserve a structured clone of the previous progress rather than marking any question correct or wrong.
 
 - [ ] **Step 4: Verify GREEN**
 
