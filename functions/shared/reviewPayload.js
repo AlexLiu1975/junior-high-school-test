@@ -20,3 +20,19 @@ export function buildReviewPayload(definition, wrongIds) {
     };
   });
 }
+
+export function buildResultReview(definition, result) {
+  if (definition?.kind !== "multiple-choice" || result?.resultType !== "score") {
+    invalidTrustedResult();
+  }
+  if (definition.resultReviewScope === "legacy-score") {
+    return { reviewAvailable: false };
+  }
+  if (definition.resultReviewScope === "all") {
+    return {
+      reviewAvailable: true,
+      review: buildReviewPayload(definition, definition.questions.map(({ id }) => id)),
+    };
+  }
+  return { review: buildReviewPayload(definition, result.wrongIds) };
+}

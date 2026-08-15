@@ -3,7 +3,7 @@ import {
   getQuizDefinition,
   validateQuizSubmission,
 } from "./shared/quizRegistry.js";
-import { buildReviewPayload } from "./shared/reviewPayload.js";
+import { buildResultReview } from "./shared/reviewPayload.js";
 
 const ATTEMPT_ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
 const PROGRESS_INPUT_FIELDS = new Set([
@@ -234,7 +234,13 @@ function projectStoredScore(attemptId, stored, definition, mode) {
     wrongCount: stored.wrongCount,
   };
   if (hasWrongIds) projected.wrongIds = [...stored.wrongIds];
-  if (hasWrongIds) projected.review = buildReviewPayload(definition, stored.wrongIds);
+  if (
+    mode === "current"
+    && (hasWrongIds || definition.resultReviewScope === "legacy-score"
+      || definition.resultReviewScope === "all")
+  ) {
+    Object.assign(projected, buildResultReview(definition, projected));
+  }
   return projected;
 }
 
@@ -361,7 +367,7 @@ export async function submitAttempt({ repository, auth, input, maskedIp, now }) 
       attemptId,
       ...attempt,
       ...(result.resultType === "score"
-        ? { review: buildReviewPayload(definition, result.wrongIds) }
+        ? buildResultReview(definition, result)
         : {}),
     };
   });
