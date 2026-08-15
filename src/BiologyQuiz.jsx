@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
 import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
+import { biologySubmissionFailureMessage } from "./biologySubmissionStatus.js";
 
 const LETTERS = ["A", "B", "C", "D"];
 const daysUntil = (dateStr) => {
@@ -137,17 +138,20 @@ export default function BiologyQuiz({ progress, sync }) {
     if (!lifecycle.claimFinish()) return;
 
     setFinishing(true);
+    let submissionConfirmed = false;
     try {
       setSaveError(null);
       const attemptSnapshot = structuredClone(attempt);
       saveAttempt(attemptSnapshot, reviewProgress);
       await sync.flush();
-      const result = biologyQuizAdapter.renderResult(
-        await sync.submit(biologyQuizAdapter.buildSubmission({
+      const serverResult = await sync.submit(
+        biologyQuizAdapter.buildSubmission({
           ...attemptSnapshot,
           reviewProgress,
-        })),
+        }),
       );
+      submissionConfirmed = true;
+      const result = biologyQuizAdapter.renderResult(serverResult);
       const nextReviewProgress = biologyQuizAdapter.updateReviewProgress({
         previous: reviewProgress,
         result,
@@ -164,7 +168,7 @@ export default function BiologyQuiz({ progress, sync }) {
       }
     } catch (error) {
       console.error("Biology submission failed", error);
-      setSaveError("作答紀錄尚未送出，資料已保留；請檢查網路後重試。");
+      setSaveError(biologySubmissionFailureMessage({ confirmed: submissionConfirmed }));
     } finally {
       lifecycle.releaseFinish();
       setFinishing(false);
