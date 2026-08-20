@@ -3,6 +3,10 @@ import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
 import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
 import {
+  biologyConfirmedReviewFailureMessage,
+  biologyResultStatus,
+} from "./biologyResultPresentation.js";
+import {
   biologySubmissionFailureMessage,
   submitBiologyAttempt,
 } from "./biologySubmissionStatus.js";
@@ -71,7 +75,7 @@ export default function BiologyQuiz({ progress, sync }) {
         }
       } catch (error) {
         console.error("Recovered biology submission could not be displayed", error);
-        setSaveError("完成紀錄已保存，但結果畫面無法還原；請重新整理頁面。");
+        setSaveError(biologyConfirmedReviewFailureMessage());
       }
     });
   }, [attempt, sync]);
@@ -163,9 +167,11 @@ export default function BiologyQuiz({ progress, sync }) {
       }
     } catch (error) {
       console.error("Biology submission failed", error);
-      setSaveError(biologySubmissionFailureMessage({
-        confirmed: error?.submissionConfirmed === true,
-      }));
+      setSaveError(
+        error?.submissionConfirmed === true
+          ? biologyConfirmedReviewFailureMessage()
+          : biologySubmissionFailureMessage({ confirmed: false }),
+      );
     } finally {
       lifecycle.releaseFinish();
       setFinishing(false);
@@ -193,9 +199,12 @@ export default function BiologyQuiz({ progress, sync }) {
     }
   };
 
-  const wrongAnswers = attempt && confirmedResult
-    ? biologyQuizAdapter.buildWrongAnswerDisplay({ attempt, result: confirmedResult })
+  const answerReview = attempt && confirmedResult
+    ? biologyQuizAdapter.buildAnswerReviewDisplay({ attempt, result: confirmedResult })
     : [];
+  const resultStatus = confirmedResult
+    ? biologyResultStatus({ reviewAvailable: confirmedResult.reviewAvailable })
+    : null;
 
   const reviewList = Object.entries(reviewProgress)
     .filter(([, v]) => v.errorCount > 0)
@@ -292,7 +301,9 @@ export default function BiologyQuiz({ progress, sync }) {
             <ResultsView
               score={confirmedResult.correctCount}
               total={attempt.questions.length}
-              wrongAnswers={wrongAnswers}
+              answerReview={answerReview}
+              reviewAvailable={confirmedResult.reviewAvailable}
+              resultStatus={resultStatus}
               reviewList={reviewList}
               actionsDisabled={finishing || clearing}
               onRetry={startQuiz}
@@ -449,7 +460,7 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, total, wrongAnswers, reviewList, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+function ResultsView({ score, total, answerReview, reviewAvailable, resultStatus, reviewList, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
   return (
     <div>
       <div className="text-center mb-6">
@@ -471,48 +482,65 @@ function ResultsView({ score, total, wrongAnswers, reviewList, actionsDisabled, 
         </p>
       </div>
 
-      {wrongAnswers.length > 0 ? (
+      {reviewAvailable ? (
         <div className="mb-7">
-          <h3 style={{ ...serifStyle, color: RED }} className="text-sm font-bold mb-3 flex items-center gap-2">
-            <span className="pen-circle-red w-5 h-5 flex items-center justify-center text-[10px]" style={{ ...monoStyle, color: RED }}>
-              ✕
-            </span>
-            錯題標示（{wrongAnswers.length} 題）
+          <h3 style={{ ...serifStyle, color: INK }} className="text-base font-bold mb-3">
+            {resultStatus}（{answerReview.length} 題）
           </h3>
           <div className="space-y-3">
-            {wrongAnswers.map((wrongAnswer) => (
-              <div key={wrongAnswer.id} className="rounded border px-4 py-3" style={{ borderColor: "#E3B0A8", background: "rgba(178,58,46,0.05)" }}>
-                <p style={{ ...monoStyle, color: RED }} className="text-[11px] mb-1">
-                  本次第 {wrongAnswer.attemptPosition} 題 ・ 累計錯誤 {reviewList.find((r) => r.id === wrongAnswer.id)?.errorCount || 1} 次
-                </p>
-                <p style={{ color: INKDARK }} className="text-sm mb-2">
-                  {wrongAnswer.text}
-                </p>
-                <p style={{ color: INKDARK }} className="text-xs">
-                  你的答案：
-                  <span style={{ color: RED }} className="font-bold">
-                    {" "}
-                    {wrongAnswer.selectedAnswer
-                      ? `(${wrongAnswer.selectedAnswer.letter}) ${wrongAnswer.selectedAnswer.text}`
-                      : "未作答"}
-                  </span>
-                </p>
-                <p style={{ color: INKDARK }} className="text-xs mt-0.5">
-                  正確答案：
-                  <span style={{ color: GREEN }} className="font-bold">
-                    {" "}
-                    ({wrongAnswer.correctAnswer.letter}){" "}
-                    {wrongAnswer.correctAnswer.text}
-                  </span>
-                </p>
-              </div>
-            ))}
+            {answerReview.map((row) => {
+              const statusColor = row.isCorrect ? GREEN : RED;
+              const borderColor = row.isCorrect ? "#AAC4AF" : "#E3B0A8";
+              const background = row.isCorrect
+                ? "rgba(63,107,74,0.06)"
+                : "rgba(178,58,46,0.05)";
+              return (
+                <div key={row.id} className="rounded border px-4 py-4" style={{ borderColor, background }}>
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <p style={{ ...monoStyle, color: statusColor }} className="text-xs font-bold">
+                      {row.isCorrect ? "✓ 答對" : "✕ 答錯"}
+                    </p>
+                    <p style={{ ...monoStyle, color: "#8a8272" }} className="text-[10px]">
+                      本次第 {row.attemptPosition} 題
+                    </p>
+                  </div>
+                  <p style={{ color: INKDARK }} className="text-sm leading-relaxed mb-3 font-medium">
+                    {row.text}
+                  </p>
+                  <p style={{ color: INKDARK }} className="text-xs">
+                    你的答案：
+                    <span style={{ color: statusColor }} className="font-bold">
+                      {" "}
+                      {row.selectedAnswer
+                        ? `(${row.selectedAnswer.letter}) ${row.selectedAnswer.text}`
+                        : "未作答"}
+                    </span>
+                  </p>
+                  <p style={{ color: INKDARK }} className="text-xs mt-0.5">
+                    正確答案：
+                    <span style={{ color: GREEN }} className="font-bold">
+                      {" "}
+                      ({row.correctAnswer.letter}) {row.correctAnswer.text}
+                    </span>
+                  </p>
+                  <div
+                    className="rounded mt-3 px-3 py-2.5 text-xs leading-relaxed"
+                    style={{ color: INKDARK, background: "rgba(255,255,255,0.58)", borderLeft: `3px solid ${statusColor}` }}
+                  >
+                    💡 <strong>解題觀念：</strong>{row.explanation}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : (
-        <p style={{ color: GREEN, ...serifStyle }} className="text-center font-bold mb-7">
-          全部答對！太棒了 🌿
-        </p>
+        <div
+          className="rounded border px-4 py-3 text-sm leading-relaxed mb-7"
+          style={{ color: INKDARK, borderColor: "#DCD4BC", background: "rgba(255,255,255,0.45)" }}
+        >
+          {resultStatus}
+        </div>
       )}
 
       {reviewList.length > 0 && (
