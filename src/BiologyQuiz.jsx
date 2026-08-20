@@ -4,7 +4,7 @@ import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
 import {
   biologySubmissionFailureMessage,
-  resolveBiologySubmissionResult,
+  submitBiologyAttempt,
 } from "./biologySubmissionStatus.js";
 
 const LETTERS = ["A", "B", "C", "D"];
@@ -141,23 +141,15 @@ export default function BiologyQuiz({ progress, sync }) {
     if (!lifecycle.claimFinish()) return;
 
     setFinishing(true);
-    let submissionConfirmed = false;
     try {
       setSaveError(null);
       const attemptSnapshot = structuredClone(attempt);
       saveAttempt(attemptSnapshot, reviewProgress);
       await sync.flush();
-      const serverResult = await sync.submit(
-        biologyQuizAdapter.buildSubmission({
-          ...attemptSnapshot,
-          reviewProgress,
-        }),
-      );
-      submissionConfirmed = true;
-      const { result, reviewProgress: nextReviewProgress } = resolveBiologySubmissionResult({
+      const { result, reviewProgress: nextReviewProgress } = await submitBiologyAttempt({
+        sync,
         attemptSnapshot,
         previousReviewProgress: reviewProgress,
-        serverResult,
       });
       setAttempt(attemptSnapshot);
       setReviewProgress(nextReviewProgress);
@@ -171,7 +163,9 @@ export default function BiologyQuiz({ progress, sync }) {
       }
     } catch (error) {
       console.error("Biology submission failed", error);
-      setSaveError(biologySubmissionFailureMessage({ confirmed: submissionConfirmed }));
+      setSaveError(biologySubmissionFailureMessage({
+        confirmed: error?.submissionConfirmed === true,
+      }));
     } finally {
       lifecycle.releaseFinish();
       setFinishing(false);
