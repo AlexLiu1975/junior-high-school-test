@@ -2,7 +2,10 @@ import React, { useEffect, useState, useRef } from "react";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
 import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
-import { biologySubmissionFailureMessage } from "./biologySubmissionStatus.js";
+import {
+  biologySubmissionFailureMessage,
+  resolveBiologySubmissionResult,
+} from "./biologySubmissionStatus.js";
 
 const LETTERS = ["A", "B", "C", "D"];
 const daysUntil = (dateStr) => {
@@ -151,10 +154,10 @@ export default function BiologyQuiz({ progress, sync }) {
         }),
       );
       submissionConfirmed = true;
-      const result = biologyQuizAdapter.renderResult(serverResult);
-      const nextReviewProgress = biologyQuizAdapter.updateReviewProgress({
-        previous: reviewProgress,
-        result,
+      const { result, reviewProgress: nextReviewProgress } = resolveBiologySubmissionResult({
+        attemptSnapshot,
+        previousReviewProgress: reviewProgress,
+        serverResult,
       });
       setAttempt(attemptSnapshot);
       setReviewProgress(nextReviewProgress);
