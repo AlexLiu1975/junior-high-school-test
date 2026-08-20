@@ -2,10 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
 import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
-import {
-  biologyConfirmedReviewFailureMessage,
-  biologyResultStatus,
-} from "./biologyResultPresentation.js";
+import { biologyResultStatus } from "./biologyResultPresentation.js";
 import {
   biologySubmissionFailureMessage,
   submitBiologyAttempt,
@@ -75,7 +72,7 @@ export default function BiologyQuiz({ progress, sync }) {
         }
       } catch (error) {
         console.error("Recovered biology submission could not be displayed", error);
-        setSaveError(biologyConfirmedReviewFailureMessage());
+        setSaveError(biologySubmissionFailureMessage({ confirmed: true }));
       }
     });
   }, [attempt, sync]);
@@ -167,11 +164,9 @@ export default function BiologyQuiz({ progress, sync }) {
       }
     } catch (error) {
       console.error("Biology submission failed", error);
-      setSaveError(
-        error?.submissionConfirmed === true
-          ? biologyConfirmedReviewFailureMessage()
-          : biologySubmissionFailureMessage({ confirmed: false }),
-      );
+      setSaveError(biologySubmissionFailureMessage({
+        confirmed: error?.submissionConfirmed === true,
+      }));
     } finally {
       lifecycle.releaseFinish();
       setFinishing(false);
@@ -202,9 +197,6 @@ export default function BiologyQuiz({ progress, sync }) {
   const answerReview = attempt && confirmedResult
     ? biologyQuizAdapter.buildAnswerReviewDisplay({ attempt, result: confirmedResult })
     : [];
-  const resultStatus = confirmedResult
-    ? biologyResultStatus({ reviewAvailable: confirmedResult.reviewAvailable })
-    : null;
 
   const reviewList = Object.entries(reviewProgress)
     .filter(([, v]) => v.errorCount > 0)
@@ -259,9 +251,7 @@ export default function BiologyQuiz({ progress, sync }) {
 
         <div className="paper-lines rounded-b-md px-5 sm:px-7 py-6" style={{ background: PAPER }}>
           {saveError && (
-            <div className="mb-5 rounded px-4 py-3 text-sm" style={{ background: "rgba(178,58,46,0.08)", border: "1px solid #E3B0A8", color: RED }}>
-              {saveError}
-            </div>
+            <BiologySaveError message={saveError} RED={RED} />
           )}
 
           {view === "intro" && (
@@ -303,7 +293,6 @@ export default function BiologyQuiz({ progress, sync }) {
               total={attempt.questions.length}
               answerReview={answerReview}
               reviewAvailable={confirmedResult.reviewAvailable}
-              resultStatus={resultStatus}
               reviewList={reviewList}
               actionsDisabled={finishing || clearing}
               onRetry={startQuiz}
@@ -322,6 +311,19 @@ export default function BiologyQuiz({ progress, sync }) {
           {view === "results" ? "紀錄已保存" : "作答進度由共用同步服務保留"}
         </p>
       </div>
+    </div>
+  );
+}
+
+export function BiologySaveError({ message, RED }) {
+  return (
+    <div
+      role="alert"
+      aria-live="polite"
+      className="mb-5 rounded px-4 py-3 text-sm"
+      style={{ background: "rgba(178,58,46,0.08)", border: "1px solid #E3B0A8", color: RED }}
+    >
+      {message}
     </div>
   );
 }
@@ -460,7 +462,7 @@ function QuizView({ question, index, total, selected, onSelect, onNext, onPrev, 
 /* ---------------------------------------------------------
    Results
 --------------------------------------------------------- */
-function ResultsView({ score, total, answerReview, reviewAvailable, resultStatus, reviewList, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+function ResultsView({ score, total, answerReview, reviewAvailable, reviewList, actionsDisabled, onRetry, onReset, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
   return (
     <div>
       <div className="text-center mb-6">
@@ -482,66 +484,16 @@ function ResultsView({ score, total, answerReview, reviewAvailable, resultStatus
         </p>
       </div>
 
-      {reviewAvailable ? (
-        <div className="mb-7">
-          <h3 style={{ ...serifStyle, color: INK }} className="text-base font-bold mb-3">
-            {resultStatus}（{answerReview.length} 題）
-          </h3>
-          <div className="space-y-3">
-            {answerReview.map((row) => {
-              const statusColor = row.isCorrect ? GREEN : RED;
-              const borderColor = row.isCorrect ? "#AAC4AF" : "#E3B0A8";
-              const background = row.isCorrect
-                ? "rgba(63,107,74,0.06)"
-                : "rgba(178,58,46,0.05)";
-              return (
-                <div key={row.id} className="rounded border px-4 py-4" style={{ borderColor, background }}>
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <p style={{ ...monoStyle, color: statusColor }} className="text-xs font-bold">
-                      {row.isCorrect ? "✓ 答對" : "✕ 答錯"}
-                    </p>
-                    <p style={{ ...monoStyle, color: "#8a8272" }} className="text-[10px]">
-                      本次第 {row.attemptPosition} 題
-                    </p>
-                  </div>
-                  <p style={{ color: INKDARK }} className="text-sm leading-relaxed mb-3 font-medium">
-                    {row.text}
-                  </p>
-                  <p style={{ color: INKDARK }} className="text-xs">
-                    你的答案：
-                    <span style={{ color: statusColor }} className="font-bold">
-                      {" "}
-                      {row.selectedAnswer
-                        ? `(${row.selectedAnswer.letter}) ${row.selectedAnswer.text}`
-                        : "未作答"}
-                    </span>
-                  </p>
-                  <p style={{ color: INKDARK }} className="text-xs mt-0.5">
-                    正確答案：
-                    <span style={{ color: GREEN }} className="font-bold">
-                      {" "}
-                      ({row.correctAnswer.letter}) {row.correctAnswer.text}
-                    </span>
-                  </p>
-                  <div
-                    className="rounded mt-3 px-3 py-2.5 text-xs leading-relaxed"
-                    style={{ color: INKDARK, background: "rgba(255,255,255,0.58)", borderLeft: `3px solid ${statusColor}` }}
-                  >
-                    💡 <strong>解題觀念：</strong>{row.explanation}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        <div
-          className="rounded border px-4 py-3 text-sm leading-relaxed mb-7"
-          style={{ color: INKDARK, borderColor: "#DCD4BC", background: "rgba(255,255,255,0.45)" }}
-        >
-          {resultStatus}
-        </div>
-      )}
+      <BiologyResultReview
+        answerReview={answerReview}
+        reviewAvailable={reviewAvailable}
+        serifStyle={serifStyle}
+        monoStyle={monoStyle}
+        INK={INK}
+        RED={RED}
+        GREEN={GREEN}
+        INKDARK={INKDARK}
+      />
 
       {reviewList.length > 0 && (
         <div className="mb-7">
@@ -581,6 +533,76 @@ function ResultsView({ score, total, answerReview, reviewAvailable, resultStatus
         </button>
       </div>
     </div>
+  );
+}
+
+export function BiologyResultReview({ answerReview, reviewAvailable, serifStyle, monoStyle, INK, RED, GREEN, INKDARK }) {
+  const resultStatus = biologyResultStatus({ reviewAvailable });
+
+  if (!reviewAvailable) {
+    return (
+      <section
+        aria-label="成績說明"
+        className="rounded border px-4 py-3 text-sm leading-relaxed mb-7"
+        style={{ color: INKDARK, borderColor: "#DCD4BC", background: "rgba(255,255,255,0.45)" }}
+      >
+        {resultStatus}
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="biology-answer-review-heading" className="mb-7">
+      <h2 id="biology-answer-review-heading" style={{ ...serifStyle, color: INK }} className="text-base font-bold mb-3">
+        {resultStatus}（{answerReview.length} 題）
+      </h2>
+      <ol className="space-y-3">
+        {answerReview.map((row) => {
+          const statusColor = row.isCorrect ? GREEN : RED;
+          const borderColor = row.isCorrect ? "#AAC4AF" : "#E3B0A8";
+          const background = row.isCorrect
+            ? "rgba(63,107,74,0.06)"
+            : "rgba(178,58,46,0.05)";
+          return (
+            <li key={row.id} className="rounded border px-4 py-4" style={{ borderColor, background }}>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p style={{ ...monoStyle, color: statusColor }} className="text-xs font-bold">
+                  {row.isCorrect ? "✓ 答對" : "✕ 答錯"}
+                </p>
+                <p style={{ ...monoStyle, color: "#8a8272" }} className="text-[10px]">
+                  本次第 {row.attemptPosition} 題
+                </p>
+              </div>
+              <p style={{ color: INKDARK }} className="text-sm leading-relaxed mb-3 font-medium">
+                {row.text}
+              </p>
+              <p style={{ color: INKDARK }} className="text-xs">
+                你的答案：
+                <span style={{ color: statusColor }} className="font-bold">
+                  {" "}
+                  {row.selectedAnswer
+                    ? `(${row.selectedAnswer.letter}) ${row.selectedAnswer.text}`
+                    : "未作答"}
+                </span>
+              </p>
+              <p style={{ color: INKDARK }} className="text-xs mt-0.5">
+                正確答案：
+                <span style={{ color: GREEN }} className="font-bold">
+                  {" "}
+                  ({row.correctAnswer.letter}) {row.correctAnswer.text}
+                </span>
+              </p>
+              <div
+                className="rounded mt-3 px-3 py-2.5 text-xs leading-relaxed"
+                style={{ color: INKDARK, background: "rgba(255,255,255,0.58)", borderLeft: `3px solid ${statusColor}` }}
+              >
+                💡 <strong>解題觀念：</strong>{row.explanation}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

@@ -133,7 +133,7 @@ test("malformed processing after submit resolution uses the confirmed failure me
         submissionStatus.biologySubmissionFailureMessage({
           confirmed: error.submissionConfirmed,
         }),
-        "完成紀錄已保存；結果顯示失敗，請重新整理頁面。",
+        "完成紀錄已保存，但解析暫時無法顯示，請重新整理頁面。",
       );
       return true;
     },

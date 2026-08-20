@@ -10,7 +10,7 @@ test("biology distinguishes a failed submit from a confirmed result-display fail
   );
   assert.equal(
     biologySubmissionFailureMessage({ confirmed: true }),
-    "完成紀錄已保存；結果顯示失敗，請重新整理頁面。",
+    "完成紀錄已保存，但解析暫時無法顯示，請重新整理頁面。",
   );
 });
 
