@@ -176,6 +176,20 @@ integrationTest("all three quizzes restore on a second anonymous user and retry 
     const firstResult = await callable("submitQuizAttempt", second.idToken, submission);
     const retryResult = await callable("submitQuizAttempt", second.idToken, submission);
     assert.deepEqual(retryResult, firstResult);
+    if (definition.id === "biology-cell-microscope-1") {
+      assert.equal(firstResult.reviewAvailable, true);
+      assert.equal(firstResult.review.length, 20);
+      assert.deepEqual(
+        firstResult.review.map(({ questionId }) => questionId),
+        definition.questions.map(({ id }) => id),
+      );
+      for (const item of firstResult.review) {
+        assert.deepEqual(
+          Object.keys(item).sort(),
+          ["correctOptionId", "explanation", "questionId"],
+        );
+      }
+    }
 
     const [publicSnapshot, privateSnapshot] = await Promise.all([
       db.collection("quizAttempts").where("studentId", "==", student.studentId).get(),
@@ -185,6 +199,13 @@ integrationTest("all three quizzes restore on a second anonymous user and retry 
     assert.equal(publicSnapshot.docs[0].id, attemptId);
     assert.equal(privateSnapshot.exists, true);
     assert.match(privateSnapshot.data().maskedIp, /(?:xxx|unknown|無法判定)$/);
+    for (const snapshot of [publicSnapshot.docs[0], privateSnapshot]) {
+      for (const forbidden of [
+        "review", "reviewAvailable", "answers", "explanation", "explanations",
+      ]) {
+        assert.equal(Object.hasOwn(snapshot.data(), forbidden), false);
+      }
+    }
   }
 });
 

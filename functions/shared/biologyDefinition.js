@@ -1,9 +1,9 @@
 export const QUIZ_ID = "biology-cell-microscope-1";
-export const QUIZ_VERSION = 1;
+export const QUIZ_VERSION = 2;
 export const QUIZ_TITLE = "第1回 第1、2單元｜細胞與顯微鏡";
 export const QUIZ_CATALOG_DESCRIPTION = "細胞構造、物質進出細胞與顯微鏡操作複習";
 
-const RAW_QUESTIONS = [
+const RAW_QUESTIONS_V1 = [
   { id: "q1", n: 1, text: "關於英國科學家虎克的敘述，下列何者錯誤？", options: ["他是史上第一位描述細胞的科學家", "他用自製的顯微鏡觀察軟木塞薄片", "他所看見的格狀構造是植物細胞的細胞膜（壁）", "他所發現的細胞已不具生命現象"], correct: 2 },
   { id: "q2", n: 2, text: "當阿拉蕾長時間配戴隱形眼鏡造成眼睛過於乾澀，通常會點上一、兩滴人工淚液以舒緩症狀。請問人工淚液與下列何種液體成分相似，所以可減緩眼睛乾澀的問題？", options: ["礦泉水", "白開水", "生理食鹽水", "濃食鹽水"], correct: 2 },
   { id: "q3", n: 3, text: "下列何種物質不需要經由細胞膜上的蛋白質通道，可以直接利用擴散作用進出細胞？", options: ["二氧化碳", "蛋白質", "礦物質", "葡萄糖"], correct: 0 },
@@ -26,22 +26,77 @@ const RAW_QUESTIONS = [
   { id: "q20", n: 20, text: "右圖是解剖顯微鏡觀察已麻醉的蜜蜂之影像，小蓮該如何操作顯微鏡，才能讓蜜蜂在視野正中央？", options: ["更換倍率較高的鏡頭", "轉動調節輪", "將視野亮度調亮", "移動標本"], correct: 3 },
 ];
 
-export const QUIZ_DEFINITION = {
-  id: QUIZ_ID,
-  version: QUIZ_VERSION,
-  kind: "multiple-choice",
-  orderingPolicy: "permutation",
-  subject: "Biology",
-  title: QUIZ_TITLE,
-  catalogDescription: QUIZ_CATALOG_DESCRIPTION,
-  supportsReviewProgress: true,
-  legacyAttemptQuizIds: ["cell-microscope-quiz1"],
-  questions: RAW_QUESTIONS.map((question) => ({
+const RAW_QUESTIONS_V2 = RAW_QUESTIONS_V1.map((question) => {
+  if (question.id !== "q14") return question;
+  return {
     ...question,
-    options: question.options.map((text, index) => ({
-      id: `${question.id}-o${index + 1}`,
-      text,
-      correct: index === question.correct,
-    })),
-  })),
+    options: [
+      "最大的放大倍率：甲＞乙",
+      "甲看到的影像較為立體",
+      "乙看到影像的方位與實物相同",
+      "甲、乙皆適合觀察細胞標本",
+    ],
+    correct: 1,
+  };
+});
+
+const EXPLANATIONS_V2 = {
+  q1: "虎克觀察的是軟木栓中已死亡細胞留下的細胞壁格室，不是細胞膜；他因此首先描述並命名了細胞。",
+  q2: "人工淚液需接近人體淚液的滲透壓，成分與約 0.9% 的生理食鹽水相近，較不會使眼睛細胞因滲透作用而受刺激。",
+  q3: "二氧化碳是小分子，可直接穿過細胞膜並由高濃度處向低濃度處擴散；葡萄糖與離子通常需要膜蛋白協助。",
+  q4: "人類屬於動物，動物細胞沒有葉綠體；榕樹、大王椰子與高麗菜都是植物，綠色部位的細胞具有葉綠體。",
+  q5: "植物細胞外有堅硬的細胞壁，可抵抗吸水後產生的膨壓，因此放入清水時通常只會膨脹而不易破裂。",
+  q6: "葡萄糖是細胞呼吸可直接利用的重要養分，能較快提供細胞產生能量所需的原料，因此可協助緩解低血糖不適。",
+  q7: "細胞呼吸會消耗氧氣並產生二氧化碳，所以氧氣由細胞外擴散進入，二氧化碳則由細胞內擴散到外界。依題圖方向分別為丙與甲。",
+  q8: "細胞是生物體構造與功能的基本單位；分子、原子和葡萄糖雖可構成細胞，卻不能獨立代表生物體的基本生命單位。",
+  q9: "粒線體是細胞進行細胞呼吸、利用葡萄糖等養分釋放能量的主要場所，因此常被稱為細胞的發電廠。",
+  q10: "水蘊草與軟木栓都屬植物組織，細胞外層具有細胞壁，能支持並維持較規則、不易變形的外形。",
+  q11: "更換複式顯微鏡的物鏡應轉動旋轉盤；放大倍率是目鏡倍率乘以物鏡倍率，光線則先經物鏡再到目鏡。",
+  q12: "尋找會移動的水中小生物時應先用低倍鏡，因為低倍視野較大；直接換成高倍鏡會使視野縮小，反而更難找回目標。",
+  q13: "放上玻片後先在側面觀察，利用粗調節輪讓低倍物鏡靠近標本，再從目鏡觀察並慢慢拉遠對焦，可避免物鏡撞破玻片。",
+  q14: "解剖顯微鏡的放大倍率通常較低，但影像方向與實物相同且較有立體感，適合觀察昆蟲等較大的立體物，因此 B 正確。",
+  q15: "寬尾鳳蝶的管狀口器體積較大且具有立體構造，適合用解剖顯微鏡觀察；病毒與細胞內細微構造需要更高解析能力。",
+  q16: "顯微鏡倍率愈高，進入視野的光量通常愈少，視野也愈暗；細胞看起來最大、數目最少的 C 代表最高倍率。",
+  q17: "高倍觀察時只使用粗調節輪可能讓物鏡撞到玻片，也不易精確對焦；通常低倍先粗調，高倍改用細調節輪。",
+  q18: "總放大倍率等於目鏡倍率乘以物鏡倍率。九種搭配中 5×20 與 10×10 都是 100 倍，因此不同的總倍率共有八種。",
+  q19: "低倍鏡的放大倍率較小，因此能看到的範圍較大；光圈主要影響亮度，不會直接決定視野範圍大小。",
+  q20: "解剖顯微鏡下影像方向與實物相同，要讓蜜蜂移到視野中央，應直接朝需要的方向移動標本，而不是調焦或改變亮度。",
 };
+
+function buildDefinition({ version, resultReviewScope, questions }) {
+  return {
+    id: QUIZ_ID,
+    version,
+    kind: "multiple-choice",
+    orderingPolicy: "permutation",
+    subject: "Biology",
+    title: QUIZ_TITLE,
+    catalogDescription: QUIZ_CATALOG_DESCRIPTION,
+    supportsReviewProgress: true,
+    legacyAttemptQuizIds: ["cell-microscope-quiz1"],
+    resultReviewScope,
+    questions: questions.map((question) => ({
+      ...question,
+      options: question.options.map((text, index) => ({
+        id: `${question.id}-o${index + 1}`,
+        text,
+        correct: index === question.correct,
+      })),
+    })),
+  };
+}
+
+export const LEGACY_BIOLOGY_DEFINITIONS = [buildDefinition({
+  version: 1,
+  resultReviewScope: "legacy-score",
+  questions: RAW_QUESTIONS_V1,
+})];
+
+export const QUIZ_DEFINITION = buildDefinition({
+  version: QUIZ_VERSION,
+  resultReviewScope: "all",
+  questions: RAW_QUESTIONS_V2.map((question) => ({
+    ...question,
+    explanation: EXPLANATIONS_V2[question.id],
+  })),
+});

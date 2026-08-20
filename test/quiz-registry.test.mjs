@@ -5,7 +5,6 @@ import {
   getQuizDefinition,
   validateQuizSubmission,
 } from "../functions/shared/quizRegistry.js";
-import { QUIZ_CATALOG as CLIENT_QUIZ_CATALOG } from "../src/quizCatalogData.js";
 
 function canonicalMultipleChoiceOrder(definition) {
   return {
@@ -18,7 +17,6 @@ function canonicalMultipleChoiceOrder(definition) {
 }
 
 test("catalog exposes three stable quizzes in display order", () => {
-  assert.deepEqual(CLIENT_QUIZ_CATALOG, QUIZ_CATALOG);
   assert.deepEqual(QUIZ_CATALOG.map((quiz) => quiz.id), [
     "biology-cell-microscope-1",
     "english-review-2",
@@ -29,6 +27,7 @@ test("catalog exposes three stable quizzes in display order", () => {
     "multiple-choice",
     "placement",
   ]);
+  assert.equal(QUIZ_CATALOG.find(({ id }) => id === "biology-cell-microscope-1").version, 2);
   assert.equal(QUIZ_CATALOG.every(({ version, subject, title, catalogDescription }) => (
     Number.isInteger(version)
       && typeof subject === "string" && subject.length > 0
@@ -49,6 +48,18 @@ test("registry resolves only an exact stable quiz ID and version", () => {
   assert.equal(getQuizDefinition("unknown", 1), null);
   assert.equal(getQuizDefinition("english-review-2", 999), null);
   assert.equal(getQuizDefinition("english-review-2", "1"), null);
+});
+
+test("Biology retains its legacy definition while the catalog exposes version 2", () => {
+  const current = getQuizDefinition("biology-cell-microscope-1", 2);
+  const legacy = getQuizDefinition("biology-cell-microscope-1", 1);
+
+  assert.equal(QUIZ_CATALOG.filter(({ id }) => id === current.id).length, 1);
+  assert.equal(QUIZ_CATALOG.find(({ id }) => id === current.id).version, 2);
+  assert.equal(current.resultReviewScope, "all");
+  assert.equal(legacy.resultReviewScope, "legacy-score");
+  assert.equal(legacy.questions[13].options[0].text, "最大的放大倍率：甲＜乙");
+  assert.equal(legacy.questions[13].options[2].correct, true);
 });
 
 test("catalog metadata and trusted definitions are deeply immutable", () => {

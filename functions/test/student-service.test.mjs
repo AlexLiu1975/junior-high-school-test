@@ -6,6 +6,7 @@ import {
   submitAttempt,
 } from "../studentService.js";
 import {
+  LEGACY_BIOLOGY_DEFINITIONS,
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_VERSION,
@@ -586,6 +587,91 @@ test("attempt completion recomputes score and atomically clears only active prog
   });
 });
 
+test("Biology v2 returns every trusted explanation on direct submission and exact retry without persistence", async () => {
+  const repository = createMemoryStudentRepository();
+  const result = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: PERFECT_INPUT,
+    maskedIp: "203.0.113.xxx",
+    now: NOW,
+  });
+
+  assert.equal(result.reviewAvailable, true);
+  assert.equal(result.review.length, 20);
+  assert.deepEqual(
+    result.review.map(({ questionId }) => questionId),
+    QUIZ_DEFINITION.questions.map(({ id }) => id),
+  );
+  for (const item of result.review) {
+    assert.deepEqual(
+      Object.keys(item).sort(),
+      ["correctOptionId", "explanation", "questionId"],
+    );
+  }
+
+  const persisted = repository.attempts.get(result.attemptId);
+  for (const forbidden of [
+    "review", "reviewAvailable", "answers", "explanation", "explanations",
+  ]) {
+    assert.equal(Object.hasOwn(persisted, forbidden), false);
+  }
+  const retry = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: { ...PERFECT_INPUT, answers: { unknown: "not-an-option" } },
+    maskedIp: "198.51.100.xxx",
+    now: NOW,
+  });
+  assert.deepEqual(retry, result);
+  assert.equal(repository.attempts.size, 1);
+  assert.equal(repository.privateAttempts.size, 1);
+});
+
+test("Biology v1 stored retry exposes safe score only", async () => {
+  const repository = createMemoryStudentRepository();
+  const definition = LEGACY_BIOLOGY_DEFINITIONS[0];
+  const attemptId = "attempt-biology-v1-retry";
+  repository.attempts.set(attemptId, {
+    quizId: definition.id,
+    quizVersion: definition.version,
+    quizKind: definition.kind,
+    quizTitle: definition.title,
+    subject: definition.subject,
+    studentUid: ANON_AUTH.uid,
+    studentId: STUDENT.studentId,
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    submittedAt: NOW,
+    resultType: "score",
+    score: 95,
+    correctCount: 19,
+    wrongCount: 1,
+    wrongIds: ["q14"],
+  });
+
+  const retry = await submitAttempt({
+    repository,
+    auth: ANON_AUTH,
+    input: {
+      ...PERFECT_INPUT,
+      attemptId,
+      quizVersion: definition.version,
+      questionOrder: [],
+      optionOrder: {},
+      answers: { unknown: "not-an-option" },
+    },
+    maskedIp: "198.51.100.xxx",
+    now: NOW,
+  });
+
+  assert.equal(retry.reviewAvailable, false);
+  assert.equal(Object.hasOwn(retry, "review"), false);
+  assert.deepEqual(retry.wrongIds, ["q14"]);
+  assert.equal(repository.attempts.size, 1);
+  assert.equal(repository.privateAttempts.size, 0);
+});
+
 test("registered English attempts use trusted catalog metadata and fixed score fields", async () => {
   const repository = createMemoryStudentRepository();
   const firstQuestion = ENGLISH_REVIEW_2.questions[0];
@@ -706,6 +792,7 @@ test("callers cannot inject review data and placement results never expose revie
     now: NOW,
   });
   assert.equal(Object.hasOwn(placement, "review"), false);
+  assert.equal(Object.hasOwn(placement, "reviewAvailable"), false);
 });
 
 test("a stored score retry rejects wrong IDs outside the registered question set", async () => {

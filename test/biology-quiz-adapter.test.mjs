@@ -18,6 +18,27 @@ const savedAttempt = {
   currentQuestionIndex: 3,
 };
 
+const fullServerResult = {
+  resultType: "score",
+  score: 90,
+  correctCount: 18,
+  wrongCount: 2,
+  reviewAvailable: true,
+  review: QUIZ_DEFINITION.questions.map((question) => ({
+    questionId: question.id,
+    correctOptionId: question.options.find(({ correct }) => correct).id,
+    explanation: question.explanation,
+  })),
+};
+const correctAnswers = Object.fromEntries(
+  fullServerResult.review.map(({ questionId, correctOptionId }) => [questionId, correctOptionId]),
+);
+const twoWrongAnswers = {
+  ...correctAnswers,
+  q20: "q20-o3",
+};
+delete twoWrongAnswers.q19;
+
 test("biology restores exact shuffled question and option order", () => {
   const restored = biologyQuizAdapter.restoreAttempt(savedAttempt);
 
@@ -100,30 +121,28 @@ test("biology malformed saved orders always use the stable restore error", () =>
 });
 
 test("biology uses only the server-confirmed score result", () => {
-  const rawResult = {
-    resultType: "score",
-    score: 95,
-    correctCount: 19,
-    wrongCount: 1,
-    review: [{ questionId: "q1", correctOptionId: "q1-o3" }],
-    ignored: "server transport detail",
-  };
+  const rawResult = { ...fullServerResult, ignored: "server transport detail" };
   const normalized = biologyQuizAdapter.renderResult(rawResult);
 
   assert.deepEqual(normalized, {
     resultType: "score",
-    score: 95,
-    correctCount: 19,
-    wrongCount: 1,
-    review: [{ questionId: "q1", correctOptionId: "q1-o3" }],
+    score: 90,
+    correctCount: 18,
+    wrongCount: 2,
+    reviewAvailable: true,
+    review: fullServerResult.review,
   });
   assert.equal(
     biologyQuizAdapter.updateReviewProgress({
       previous: {},
       result: normalized,
+      attempt: {
+        ...biologyQuizAdapter.restoreAttempt(savedAttempt),
+        answers: twoWrongAnswers,
+      },
       today: new Date(2026, 7, 15),
     }).q1.lastResult,
-    "wrong",
+    "correct",
   );
   assert.throws(
     () => biologyQuizAdapter.renderResult({ score: 100, correctCount: 20, wrongCount: 0 }),
@@ -137,7 +156,7 @@ test("biology converts an online-recovered submission into the confirmed result 
     currentAttempt,
     submission: {
       ...biologyQuizAdapter.buildSubmission({ ...currentAttempt, reviewProgress: {} }),
-      answers: { ...currentAttempt.answers, q20: "q20-o1" },
+      answers: twoWrongAnswers,
       reviewProgress: {
         q20: {
           errorCount: 2,
@@ -148,24 +167,45 @@ test("biology converts an online-recovered submission into the confirmed result 
         },
       },
     },
-    result: {
-      resultType: "score",
-      score: 80,
-      correctCount: 16,
-      wrongCount: 4,
-      review: [
-        { questionId: "q1", correctOptionId: "q1-o3" },
-        { questionId: "q2", correctOptionId: "q2-o3" },
-        { questionId: "q3", correctOptionId: "q3-o1" },
-        { questionId: "q20", correctOptionId: "q20-o4" },
-      ],
-    },
+    result: fullServerResult,
   });
 
-  assert.equal(recovered.attempt.answers.q20, "q20-o1");
+  assert.equal(recovered.attempt.answers.q20, "q20-o3");
   assert.equal(recovered.attempt.currentQuestionIndex, savedAttempt.currentQuestionIndex);
   assert.equal(recovered.reviewProgress.q20.errorCount, 3);
-  assert.equal(recovered.result.review.length, 4);
+  assert.equal(recovered.result.review.length, 20);
+});
+
+test("biology builds all review rows in immutable attempt order", () => {
+  const restored = biologyQuizAdapter.restoreAttempt(savedAttempt);
+  const attempt = {
+    ...restored,
+    answers: twoWrongAnswers,
+  };
+  const normalized = biologyQuizAdapter.renderResult(fullServerResult);
+  const rows = biologyQuizAdapter.buildAnswerReviewDisplay({ attempt, result: normalized });
+
+  assert.equal(rows.length, 20);
+  assert.deepEqual(rows.map(({ id }) => id), attempt.questions.map(({ id }) => id));
+  assert.deepEqual(rows[0], {
+    id: "q20",
+    attemptPosition: 1,
+    text: attempt.questions[0].text,
+    isCorrect: false,
+    selectedAnswer: {
+      letter: "B",
+      text: attempt.questions[0].options[1].text,
+    },
+    correctAnswer: {
+      letter: "A",
+      text: attempt.questions[0].options[0].text,
+    },
+    explanation: fullServerResult.review.find(({ questionId }) => questionId === "q20").explanation,
+  });
+  assert.equal(rows[1].selectedAnswer, null);
+  assert.equal(rows[1].isCorrect, false);
+  assert.equal(rows[2].isCorrect, true);
+  assert.match(rows[0].explanation, /\S/);
 });
 
 test("biology creates a new attempt with stable serializable orders", () => {
@@ -181,17 +221,78 @@ test("biology creates a new attempt with stable serializable orders", () => {
 });
 
 test("biology rejects malformed or caller-shaped review payloads with one stable error", () => {
+  const validReview = fullServerResult.review;
   for (const review of [
-    [null],
-    [{ questionId: "q1", correctOptionId: "q1-o3", explanation: "not allowed" }],
-    [{ questionId: "q1", correctOptionId: "q2-o1" }],
+    validReview.slice(0, 19),
+    [...validReview.slice(0, 19), { ...validReview[0] }],
+    validReview.map((item, index) => index === 0
+      ? { ...item, correctOptionId: "q2-o1" }
+      : item),
+    validReview.map((item, index) => index === 0
+      ? { ...item, extra: true }
+      : item),
+    validReview.map((item, index) => index === 0
+      ? { ...item, explanation: "   " }
+      : item),
   ]) {
     assert.throws(() => biologyQuizAdapter.renderResult({
-      resultType: "score",
-      score: 95,
-      correctCount: 19,
-      wrongCount: 1,
+      ...fullServerResult,
       review,
     }), /invalid-biology-result/);
   }
+});
+
+test("biology preserves review progress for legacy score-only recovery", () => {
+  const previous = {
+    q20: {
+      errorCount: 2,
+      stage: 0,
+      lastResult: "wrong",
+      lastAttempt: "2026/08/08",
+      nextReview: "2026/08/09",
+    },
+  };
+  const legacyResult = {
+    resultType: "score",
+    score: 95,
+    correctCount: 19,
+    wrongCount: 1,
+    wrongIds: ["q14"],
+    reviewAvailable: false,
+  };
+  const normalized = biologyQuizAdapter.renderResult(legacyResult);
+
+  assert.deepEqual(normalized, {
+    resultType: "score",
+    score: 95,
+    correctCount: 19,
+    wrongCount: 1,
+    reviewAvailable: false,
+  });
+  assert.deepEqual(biologyQuizAdapter.buildAnswerReviewDisplay({
+    attempt: biologyQuizAdapter.restoreAttempt(savedAttempt),
+    result: normalized,
+  }), []);
+
+  const recovered = biologyQuizAdapter.restoreConfirmedSubmission({
+    currentAttempt: biologyQuizAdapter.restoreAttempt(savedAttempt),
+    submission: {
+      ...savedAttempt,
+      reviewProgress: previous,
+    },
+    result: legacyResult,
+  });
+
+  assert.deepEqual(recovered.reviewProgress, previous);
+  assert.notEqual(recovered.reviewProgress, previous);
+  assert.notEqual(recovered.reviewProgress.q20, previous.q20);
+  assert.deepEqual(previous, {
+    q20: {
+      errorCount: 2,
+      stage: 0,
+      lastResult: "wrong",
+      lastAttempt: "2026/08/08",
+      nextReview: "2026/08/09",
+    },
+  });
 });

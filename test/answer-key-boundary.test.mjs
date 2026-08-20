@@ -21,7 +21,7 @@ function assertClientSafe(value, location = "root") {
   if (value === null || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value)) {
     assert.equal(
-      ["correct", "correctIndex", "explanation"].includes(key),
+      ["correct", "correctIndex", "explanation", "resultReviewScope"].includes(key),
       false,
       `${location}.${key} exposes server-only review data`,
     );
@@ -50,13 +50,16 @@ test("client-safe content stays aligned with the versioned server definitions", 
     import("../functions/shared/biologyDefinition.js"),
     import("../functions/shared/englishReview2Definition.js"),
   ]);
-  const strip = (definition) => ({
-    ...definition,
-    questions: definition.questions.map(({ correct: _correct, explanation: _explanation, ...question }) => ({
-      ...question,
-      options: question.options.map(({ correct: _optionCorrect, ...option }) => option),
-    })),
-  });
+  const strip = (definition) => {
+    const { resultReviewScope: _resultReviewScope, ...clientDefinition } = definition;
+    return {
+      ...clientDefinition,
+      questions: definition.questions.map(({ correct: _correct, explanation: _explanation, ...question }) => ({
+        ...question,
+        options: question.options.map(({ correct: _optionCorrect, ...option }) => option),
+      })),
+    };
+  };
   assert.deepEqual(BIOLOGY_QUIZ_CONTENT, strip(QUIZ_DEFINITION));
   assert.deepEqual(ENGLISH_REVIEW_2_CONTENT, strip(ENGLISH_REVIEW_2));
 });
@@ -86,6 +89,7 @@ test("production browser chunks exclude server answer-key markers", async () => 
     "correctIndex",
     "biologyDefinition",
     "englishReview2Definition",
+    "虎克觀察的是軟木栓中已死亡細胞留下的細胞壁格室",
     "listen to... 為固定搭配用語",
     "因此 (A) 完全符合配置",
   ]) {
