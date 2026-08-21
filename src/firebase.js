@@ -84,6 +84,11 @@ export function submitQuizAttempt(input) {
   return studentFunctionCallers.submitQuizAttempt(input);
 }
 
+export function gradeQuizAnswers(input) {
+  requireFirebase();
+  return studentFunctionCallers.gradeQuizAnswers(input);
+}
+
 /*
  * Task 4 compatibility boundary:
  * App.jsx still consumes these direct Firestore helpers until the biology

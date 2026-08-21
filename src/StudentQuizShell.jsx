@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ensureSignedIn,
+  gradeQuizAnswers,
   loadStudentProgress,
   saveStudentProgress,
   submitQuizAttempt,
@@ -9,6 +10,7 @@ import HomeLink from "./HomeLink.jsx";
 import ProgressConflictDialog from "./ProgressConflictDialog.jsx";
 import { validateStudentIdentity } from "./quizDomain.js";
 import {
+  buildTrustedGradeRequest,
   buildTrustedProgressRequest,
   buildTrustedSubmissionRequest,
   classifyStudentSyncError,
@@ -430,6 +432,19 @@ export default function StudentQuizShell({ quiz, moduleLoader = null }) {
         },
         loadPendingAttempt() {
           return clientRef.current.loadPendingAttempt(session.identity.studentId, quiz.id);
+        },
+        // Live per-question grading for immediate feedback. Read-only on the
+        // server (records nothing); the authoritative attempt is still written
+        // by submit(). Answer keys never reach the browser.
+        async grade(answers) {
+          const request = buildTrustedGradeRequest({
+            answers,
+            credentials: credentialsRef.current,
+            identity: session.identity,
+            quiz,
+          });
+          const response = await gradeQuizAnswers(request);
+          return response?.verdicts ?? {};
         },
         onRecoveredSubmission(handler) {
           recoveredSubmissionHandlerRef.current = handler;

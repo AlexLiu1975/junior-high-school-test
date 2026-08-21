@@ -2,7 +2,7 @@ import { PhysicsChemistryQuiz } from "../PhysicsChemistryQuiz.jsx";
 import { part1Adapter } from "./part1Adapter.js";
 import { resolvePart1Figure } from "./part1Figures.js";
 
-const INTRO = "每一題都是一隻怪物！先選出你的答案，全部作答後按「開始結算」——答對就擊敗怪物、連續答對觸發 COMBO 連擊。為維持公平，正解與解析在提交結算後才揭曉。";
+const INTRO = "每一題都是一隻怪物！選出答案就立刻分出勝負——答對擊敗怪物、連續答對觸發 COMBO 連擊，並馬上顯示解析。作答會即時上傳雲端判定（答案不會出現在頁面原始碼），全部答完後自動記錄成績。";
 
 export default function Part1Quiz({ progress, sync }) {
   return (

@@ -3,8 +3,6 @@ import { PhysicsChemistryFigure } from "./PhysicsChemistryFigure.jsx";
 import { createGameAudio, MONSTERS, rankOf } from "./physicsGameAudio.js";
 import "./physicsGame.css";
 
-const sleep = (ms) => new Promise((resolve) => { window.setTimeout(resolve, ms); });
-
 function formatElapsed(seconds) {
   const m = String(Math.floor(seconds / 60)).padStart(2, "0");
   const s = String(seconds % 60).padStart(2, "0");
@@ -36,9 +34,8 @@ function spawnParticles(card) {
     p.className = "pcg-particle";
     p.textContent = emojis[i % emojis.length];
     const ang = (Math.PI * 2) * (i / 9);
-    const dist = 54;
-    p.style.setProperty("--dx", `${Math.cos(ang) * dist}px`);
-    p.style.setProperty("--dy", `${Math.sin(ang) * dist}px`);
+    p.style.setProperty("--dx", `${Math.cos(ang) * 54}px`);
+    p.style.setProperty("--dy", `${Math.sin(ang) * 54}px`);
     burst.appendChild(p);
   }
   card.appendChild(burst);
@@ -60,26 +57,39 @@ function launchConfetti() {
   }
 }
 
-function GameCard({ cardRef, monster, position, question, row, revealed, answer, resolveFigure, disabled, onAnswer }) {
-  const options = revealed && row ? row.options : question.options.map((o, i) => ({ ...o, letter: "ABCD"[i] }));
-  const figureIds = question.figureIds;
-  const monsterClass = !revealed ? "pcg-monster" : row.isCorrect ? "pcg-monster pcg-monster-dead" : "pcg-monster pcg-monster-hurt";
-  const monsterGlyph = revealed ? (row.isCorrect ? "💀" : "😈") : monster;
+// Recompute running score/combo/correct from answered verdicts, in question order.
+function tallyFromVerdicts(questions, answers, verdicts, pointsPerQuestion) {
+  let score = 0; let correct = 0; let combo = 0; let maxCombo = 0;
+  for (const q of questions) {
+    if (!Object.hasOwn(answers, q.id) || !verdicts[q.id]) continue;
+    if (verdicts[q.id].correct) {
+      combo += 1; maxCombo = Math.max(maxCombo, combo); correct += 1; score += pointsPerQuestion;
+    } else {
+      combo = 0;
+    }
+  }
+  return { score, correct, combo, maxCombo };
+}
+
+function QuestionCard({ cardRef, monster, position, question, answer, verdict, resolveFigure, disabled, onAnswer }) {
+  const answered = Boolean(verdict);
+  const monsterClass = !answered ? "pcg-monster" : verdict.correct ? "pcg-monster pcg-monster-dead" : "pcg-monster pcg-monster-hurt";
+  const monsterGlyph = answered ? (verdict.correct ? "💀" : "😈") : monster;
   return (
-    <article ref={cardRef} className={`pcg-card${revealed ? (row.isCorrect ? " pcg-og-cleared" : " pcg-og-failed") : ""}`}>
+    <article ref={cardRef} className={`pcg-card${answered ? (verdict.correct ? " pcg-og-cleared" : " pcg-og-failed") : ""}`}>
       <div className="pcg-qtitle">
         <span style={{ color: "#718096", marginRight: 6 }}>{position}.</span>
         {question.text}
         <span className="pcg-monster-wrap"><span className={monsterClass}>{monsterGlyph}</span></span>
       </div>
-      <PhysicsChemistryFigure figureIds={figureIds} resolve={resolveFigure} />
+      <PhysicsChemistryFigure figureIds={question.figureIds} resolve={resolveFigure} />
       <div className="pcg-options">
-        {options.map((option) => {
+        {question.options.map((option) => {
           const selected = answer === option.id;
           let cls = "pcg-option";
-          if (revealed) {
-            if (option.isCorrect) cls += " pcg-opt-correct";
-            else if (option.isSelected) cls += " pcg-opt-wrong";
+          if (answered) {
+            if (option.id === verdict.correctOptionId) cls += " pcg-opt-correct";
+            else if (selected) cls += " pcg-opt-wrong";
           } else if (selected) {
             cls += " pcg-option-selected";
           }
@@ -88,7 +98,7 @@ function GameCard({ cardRef, monster, position, question, row, revealed, answer,
               key={option.id}
               type="button"
               className={cls}
-              disabled={disabled || revealed}
+              disabled={disabled || answered}
               aria-pressed={selected}
               onClick={() => onAnswer(question.id, option.id)}
             >
@@ -97,14 +107,10 @@ function GameCard({ cardRef, monster, position, question, row, revealed, answer,
           );
         })}
       </div>
-      {revealed && row && (
-        <div className={`pcg-feedback ${row.isCorrect ? "pcg-feedback-correct" : "pcg-feedback-wrong"}`}>
-          <strong>
-            {row.isCorrect
-              ? `⚔️ 擊敗怪物！答案是 (${row.correctAnswer.letter})`
-              : `💥 怪物反擊！正確答案是 (${row.correctAnswer.letter})`}
-          </strong>
-          <div className="pcg-exp">💡 <strong>解題觀念：</strong>{row.explanation}</div>
+      {answered && (
+        <div className={`pcg-feedback ${verdict.correct ? "pcg-feedback-correct" : "pcg-feedback-wrong"}`}>
+          <strong>{verdict.correct ? "⚔️ 擊敗怪物！答對了" : "💥 怪物反擊！答錯了"}</strong>
+          {verdict.explanation && <div className="pcg-exp">💡 <strong>解題觀念：</strong>{verdict.explanation}</div>}
         </div>
       )}
     </article>
@@ -112,21 +118,20 @@ function GameCard({ cardRef, monster, position, question, row, revealed, answer,
 }
 
 export function PhysicsChemistryQuiz({ adapter, resolveFigure, title, subtitle, intro, pointsPerQuestion, progress, sync }) {
-  const restored = useRef(Boolean(progress?.activeAttempt));
   const initial = useRef(progress?.activeAttempt ? adapter.restoreAttempt(progress.activeAttempt) : adapter.createAttempt());
-  const [attempt, setAttempt] = useState(initial.current);
+  const restored = useRef(Boolean(progress?.activeAttempt));
+  const [attempt] = useState(initial.current);
   const size = attempt.questions.length;
 
   const [answers, setAnswers] = useState(initial.current.answers ?? {});
-  const [phase, setPhase] = useState("answering"); // answering | settling | done
+  const [verdicts, setVerdicts] = useState({});
+  const [phase, setPhase] = useState("playing"); // playing | finished
   const [confirmed, setConfirmed] = useState(null);
-  const [reviewRows, setReviewRows] = useState(null);
-  const [settleIndex, setSettleIndex] = useState(0);
   const [hud, setHud] = useState({ score: 0, correct: 0, combo: 0, maxCombo: 0 });
   const [muted, setMuted] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [message, setMessage] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const audioRef = useRef(null);
   if (audioRef.current === null) audioRef.current = createGameAudio();
@@ -134,35 +139,11 @@ export function PhysicsChemistryQuiz({ adapter, resolveFigure, title, subtitle, 
   const flashRef = useRef(null);
   const scoreRef = useRef(null);
   const cardRefs = useRef([]);
-  const cancelRef = useRef(false);
+  const comboRef = useRef(0);
   const initializedRef = useRef(false);
+  const finishingRef = useRef(false);
 
-  const monsters = useMemo(
-    () => attempt.questions.map((_, i) => MONSTERS[(i * 5 + 3) % MONSTERS.length]),
-    [attempt],
-  );
-
-  useEffect(() => () => { cancelRef.current = true; }, []);
-
-  useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-    if (!restored.current) {
-      try {
-        sync.queueSave(adapter.serializeProgress(initial.current));
-      } catch (error) {
-        setMessage(error?.message === "progress-refresh-required"
-          ? "完成紀錄已保存；請重新整理頁面後再開始新的測驗。"
-          : "新測驗尚未同步，請稍後重試。");
-      }
-    }
-  }, [sync, adapter]);
-
-  useEffect(() => {
-    if (phase !== "answering") return undefined;
-    const timer = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [phase]);
+  const monsters = useMemo(() => attempt.questions.map((_, i) => MONSTERS[(i * 5 + 3) % MONSTERS.length]), [attempt]);
 
   function flash(color) {
     const el = flashRef.current;
@@ -188,139 +169,148 @@ export function PhysicsChemistryQuiz({ adapter, resolveFigure, title, subtitle, 
     el.classList.add("pcg-score-pulse");
   }
 
-  function finishBattle(finalScore, maxCombo, correct) {
-    setHud({ score: finalScore, correct, combo: 0, maxCombo });
-    pulseScore(finalScore);
-    setPhase("done");
-    setSettleIndex(size);
-    launchConfetti();
-    audioRef.current.fanfare();
+  function persist(nextAnswers) {
+    try {
+      sync.queueSave(adapter.serializeProgress({ ...attempt, answers: nextAnswers }));
+    } catch (error) {
+      setMessage(error?.message === "progress-refresh-required"
+        ? "完成紀錄已保存；請重新整理頁面後再開始新的測驗。"
+        : "進度尚未同步，稍後會自動重試。");
+    }
   }
 
-  async function runSettlement(rows) {
-    let score = 0;
-    let combo = 0;
-    let maxCombo = 0;
-    let correct = 0;
-    for (let i = 0; i < rows.length; i += 1) {
-      if (cancelRef.current) return;
-      const row = rows[i];
-      if (row.isCorrect) {
-        combo += 1;
-        maxCombo = Math.max(maxCombo, combo);
-        score += pointsPerQuestion;
-        correct += 1;
-      } else {
-        combo = 0;
+  async function finish(finalAnswers) {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setBusy(true);
+    try {
+      persist(finalAnswers);
+      await sync.flush();
+      const result = adapter.renderResult(await sync.submit(adapter.buildSubmission({ ...attempt, answers: finalAnswers })));
+      setConfirmed(result);
+      setPhase("finished");
+      const tally = tallyFromVerdicts(attempt.questions, finalAnswers, verdicts, pointsPerQuestion);
+      setHud({ score: result.score, correct: result.correctCount, combo: 0, maxCombo: tally.maxCombo });
+      pulseScore(result.score);
+      launchConfetti();
+      audioRef.current.fanfare();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      console.error("Physics-chemistry submission failed", error);
+      finishingRef.current = false;
+      setMessage(error?.message === "progress-refresh-required"
+        ? "完成紀錄已保存；請重新整理頁面查看最新進度。"
+        : "成績尚未送出，作答已保留；請檢查網路後再點『完成並記錄成績』。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Initial setup: save a fresh attempt, or restore verdicts for a resumed one.
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    if (!restored.current) {
+      persist(initial.current.answers ?? {});
+      return;
+    }
+    const answered = initial.current.answers ?? {};
+    if (Object.keys(answered).length === 0) return;
+    setBusy(true);
+    sync.grade(answered)
+      .then((restoredVerdicts) => {
+        setVerdicts(restoredVerdicts);
+        const tally = tallyFromVerdicts(attempt.questions, answered, restoredVerdicts, pointsPerQuestion);
+        comboRef.current = tally.combo;
+        setHud(tally);
+        pulseScore(tally.score);
+        if (Object.keys(restoredVerdicts).length >= size) {
+          setMessage("這份試卷已全部作答，可按下方『完成並記錄成績』送出。");
+        }
+      })
+      .catch(() => setMessage("已還原你的作答，但需要連線才能顯示對錯與解析，請稍後重試。"))
+      .finally(() => setBusy(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "playing") return undefined;
+    const timer = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+
+  useEffect(() => {
+    if (typeof sync.onRecoveredSubmission !== "function") return undefined;
+    return sync.onRecoveredSubmission(({ result, submission }) => {
+      if (submission?.attemptId !== attempt.attemptId) return;
+      try {
+        const rendered = adapter.renderResult(result);
+        setConfirmed(rendered);
+        setPhase("finished");
+        setHud((h) => ({ ...h, score: rendered.score, correct: rendered.correctCount, combo: 0 }));
+        setMessage("完成紀錄已保存。");
+      } catch (error) {
+        console.error("Recovered physics-chemistry submission could not be displayed", error);
       }
-      setHud({ score, correct, combo, maxCombo });
-      setSettleIndex(i + 1);
-      // let React paint the revealed card, then fire transient effects
-      await sleep(30);
-      const card = cardRefs.current[i];
-      if (card) card.scrollIntoView({ block: "center", behavior: "smooth" });
-      if (row.isCorrect) {
+    });
+  }, [attempt, sync, adapter]);
+
+  const answerQuestion = async (questionId, optionId) => {
+    if (phase !== "playing" || busy) return;
+    if (verdicts[questionId]) return; // already answered/locked
+    setBusy(true);
+    setMessage(null);
+    const index = attempt.questions.findIndex((q) => q.id === questionId);
+    const card = cardRefs.current[index];
+    try {
+      const graded = await sync.grade({ [questionId]: optionId });
+      const verdict = graded[questionId];
+      if (!verdict) throw new Error("grade-missing");
+      const nextAnswers = { ...answers, [questionId]: optionId };
+      setAnswers(nextAnswers);
+      setVerdicts((v) => ({ ...v, [questionId]: verdict }));
+      persist(nextAnswers);
+
+      if (verdict.correct) {
+        comboRef.current += 1;
+        const combo = comboRef.current;
+        setHud((h) => {
+          const score = h.score + pointsPerQuestion;
+          pulseScore(score);
+          return { score, correct: h.correct + 1, combo, maxCombo: Math.max(h.maxCombo, combo) };
+        });
         spawnFloat(card, `+${pointsPerQuestion}`, combo, false);
         spawnParticles(card);
         flash("green");
         shake();
         audioRef.current.hit(combo);
       } else {
+        comboRef.current = 0;
+        setHud((h) => ({ ...h, combo: 0 }));
         spawnFloat(card, "MISS", 0, true);
         flash("red");
         audioRef.current.miss();
       }
-      pulseScore(score);
-      await sleep(row.isCorrect ? 430 : 540);
-    }
-    if (!cancelRef.current) finishBattle(score, maxCombo, correct);
-  }
 
-  function skipSettlement() {
-    if (!reviewRows) return;
-    cancelRef.current = true; // stop the settlement loop for good; do not reset
-    const correct = reviewRows.filter((r) => r.isCorrect).length;
-    let combo = 0;
-    let maxCombo = 0;
-    for (const r of reviewRows) { combo = r.isCorrect ? combo + 1 : 0; maxCombo = Math.max(maxCombo, combo); }
-    finishBattle(confirmed ? confirmed.score : correct * pointsPerQuestion, maxCombo, correct);
-  }
-
-  useEffect(() => {
-    if (typeof sync.onRecoveredSubmission !== "function") return undefined;
-    return sync.onRecoveredSubmission(({ result, submission, refreshRequired }) => {
-      if (submission?.attemptId !== attempt.attemptId) return;
-      try {
-        const recovered = adapter.restoreConfirmedSubmission({ currentAttempt: attempt, submission, result });
-        const rows = adapter.buildAnswerReviewDisplay({ attempt: recovered.attempt, result: recovered.result });
-        setAttempt(recovered.attempt);
-        setConfirmed(recovered.result);
-        setReviewRows(rows);
-        const correct = rows.filter((r) => r.isCorrect).length;
-        let combo = 0; let maxCombo = 0;
-        for (const r of rows) { combo = r.isCorrect ? combo + 1 : 0; maxCombo = Math.max(maxCombo, combo); }
-        setHud({ score: recovered.result.score, correct, combo: 0, maxCombo });
-        setSettleIndex(rows.length);
-        setPhase("done");
-        setMessage(refreshRequired ? "完成紀錄已保存；請重新整理頁面後再開始新的測驗。" : "完成紀錄已保存。");
-      } catch (error) {
-        console.error("Recovered physics-chemistry submission could not be displayed", error);
-        setMessage("完成紀錄已保存，但結果畫面無法還原；請重新整理頁面。");
+      if (Object.keys(nextAnswers).length >= size) {
+        setBusy(false);
+        void finish(nextAnswers);
+        return;
       }
-    });
-  }, [attempt, sync, adapter]);
-
-  const selectAnswer = (questionId, optionId) => {
-    if (phase !== "answering" || submitting) return;
-    const nextAnswers = { ...answers, [questionId]: optionId };
-    const nextAttempt = { ...attempt, answers: nextAnswers };
-    try {
-      sync.queueSave(adapter.serializeProgress(nextAttempt));
-      setAnswers(nextAnswers);
-      setAttempt(nextAttempt);
-      setMessage(null);
     } catch (error) {
+      console.error("Grade failed", error);
       setMessage(error?.message === "progress-refresh-required"
         ? "完成紀錄已保存；請重新整理頁面後再繼續。"
-        : "這個答案尚未同步，請稍後再試。");
-    }
-  };
-
-  const submitQuiz = async () => {
-    if (phase !== "answering" || submitting) return;
-    const unanswered = adapter.getUnansweredCount(answers);
-    if (unanswered > 0 && !window.confirm(`尚有 ${unanswered} 隻怪物未挑戰（未作答將計為錯誤），確定要開始結算嗎？`)) return;
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      const submitAttempt = { ...attempt, answers };
-      sync.queueSave(adapter.serializeProgress(submitAttempt));
-      await sync.flush();
-      const result = adapter.renderResult(await sync.submit(adapter.buildSubmission(submitAttempt)));
-      const rows = adapter.buildAnswerReviewDisplay({ attempt: submitAttempt, result });
-      setConfirmed(result);
-      setReviewRows(rows);
-      setPhase("settling");
-      setSettleIndex(0);
-      setHud({ score: 0, correct: 0, combo: 0, maxCombo: 0 });
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      cancelRef.current = false;
-      void runSettlement(rows);
-    } catch (error) {
-      console.error("Physics-chemistry submission failed", error);
-      setMessage(error?.message === "progress-refresh-required"
-        ? "完成紀錄已保存；請重新整理頁面查看最新進度。"
-        : "作答紀錄尚未送出，資料已保留；請檢查網路後重試。");
+        : "需要連線才能即時判定，請確認網路後再點一次。");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   };
 
-  const answeredCount = Object.keys(answers).length;
-  const progressPct = phase === "answering"
-    ? Math.round((answeredCount / size) * 100)
-    : Math.round((settleIndex / size) * 100);
-  const rank = phase === "done" ? rankOf(confirmed ? confirmed.score : hud.score) : null;
+  const answeredCount = Object.keys(verdicts).length;
+  const progressPct = Math.round((answeredCount / size) * 100);
+  const allAnswered = Object.keys(answers).length >= size;
+  const rank = phase === "finished" ? rankOf(confirmed ? confirmed.score : hud.score) : null;
 
   return (
     <div className="pcg-root mx-auto max-w-3xl text-[#333]" ref={rootRef}>
@@ -346,18 +336,17 @@ export function PhysicsChemistryQuiz({ adapter, resolveFigure, title, subtitle, 
 
       <h1 className="mt-4 text-center text-2xl font-bold text-[#1a365d]">{title} 🎮</h1>
       <p className="mt-1 text-center text-sm text-slate-500">{subtitle}</p>
-
       <div className="pcg-hud-block" style={{ justifyContent: "center", color: "#2b6cb0", marginTop: 8 }}>
         ⏱️ {formatElapsed(elapsedSeconds)}
       </div>
 
-      {phase === "answering" && <div className="pcg-intro">{intro}</div>}
+      {phase === "playing" && <div className="pcg-intro">{intro}</div>}
 
       {message && (
         <p className="my-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</p>
       )}
 
-      {phase === "done" && rank && (
+      {phase === "finished" && rank && (
         <div className="pcg-board">
           <span className="pcg-rank-badge">{rank.badge}</span>
           <div style={{ fontSize: "1.3em", color: rank.color }}>{rank.title}</div>
@@ -370,30 +359,32 @@ export function PhysicsChemistryQuiz({ adapter, resolveFigure, title, subtitle, 
       )}
 
       {attempt.questions.map((question, index) => (
-        <GameCard
+        <QuestionCard
           key={question.id}
           cardRef={(el) => { cardRefs.current[index] = el; }}
           monster={monsters[index]}
           position={index + 1}
           question={question}
-          row={reviewRows ? reviewRows[index] : null}
-          revealed={settleIndex > index}
           answer={answers[question.id]}
+          verdict={verdicts[question.id]}
           resolveFigure={resolveFigure}
-          disabled={phase !== "answering" || submitting}
-          onAnswer={selectAnswer}
+          disabled={busy || phase !== "playing"}
+          onAnswer={answerQuestion}
         />
       ))}
 
-      {phase === "answering" && (
-        <button type="button" className="pcg-submit" disabled={submitting} onClick={() => void submitQuiz()}>
-          {submitting ? "正在結算…" : "⚔️ 開始結算（提交試卷）"}
+      {phase === "playing" && (
+        <button
+          type="button"
+          className="pcg-submit"
+          disabled={busy}
+          onClick={() => {
+            if (!allAnswered && !window.confirm(`尚有 ${size - Object.keys(answers).length} 隻怪物未挑戰（未作答將計為錯誤），確定要完成並記錄成績嗎？`)) return;
+            void finish(answers);
+          }}
+        >
+          {busy ? "處理中…" : allAnswered ? "✅ 完成並記錄成績" : "🏁 直接完成（未答計錯）"}
         </button>
-      )}
-      {phase === "settling" && (
-        <div style={{ textAlign: "center" }}>
-          <button type="button" className="pcg-skip" onClick={skipSettlement}>⏭️ 跳過動畫，直接看結果</button>
-        </div>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import { createFirestoreStudentRepository } from "./firestoreStudentRepository.j
 import { maskIp } from "./ipMask.js";
 import { removeOrDeactivateStudent as runStudentRemoval } from "./adminStudentService.js";
 import {
+  gradeAnswers,
   loadProgress,
   requireAnonymousAuth,
   saveProgress,
@@ -89,6 +90,13 @@ export const submitQuizAttempt = onCall(CALLABLE_OPTIONS, async (request) => {
       maskedIp,
       now: Timestamp.now(),
     });
+  });
+});
+
+export const gradeQuizAnswers = onCall(CALLABLE_OPTIONS, async (request) => {
+  return callStudentService(() => {
+    requireAnonymousAuth(request.auth);
+    return gradeAnswers({ repository, auth: request.auth, input: request.data });
   });
 });
 

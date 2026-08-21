@@ -306,6 +306,49 @@ function publicResult(result) {
   throw new Error("invalid-submission");
 }
 
+// Grade a set of already-chosen answers for immediate (per-question) feedback,
+// without recording anything. Read-only: verifies the caller is an active
+// student, then returns only the correctness, correct option id and explanation
+// for the questions asked. Answer keys never leave Functions; the authoritative
+// score is still recorded separately by submitAttempt.
+export async function gradeAnswers({ repository, auth, input }) {
+  requireAnonymousAuth(auth);
+  const definition = requireQuiz(input);
+  if (definition.kind !== "multiple-choice") throw new Error("invalid-submission");
+
+  const answers = input?.answers;
+  if (answers === null || typeof answers !== "object" || Array.isArray(answers)) {
+    throw new Error("invalid-submission");
+  }
+  const questionIds = Object.keys(answers);
+  if (questionIds.length === 0 || questionIds.length > definition.questions.length) {
+    throw new Error("invalid-submission");
+  }
+
+  // Verifies studentCode + studentName map to an active student; throws otherwise.
+  await repository.resolveStudent(input);
+
+  const byId = new Map(definition.questions.map((question) => [question.id, question]));
+  const verdicts = {};
+  for (const [questionId, optionId] of Object.entries(answers)) {
+    const question = byId.get(questionId);
+    if (!question || typeof optionId !== "string"
+      || !question.options.some(({ id }) => id === optionId)) {
+      throw new Error("invalid-submission");
+    }
+    const correctOption = question.options.find(({ correct }) => correct === true);
+    if (!correctOption) throw new Error("invalid-submission");
+    verdicts[questionId] = {
+      correct: optionId === correctOption.id,
+      correctOptionId: correctOption.id,
+      ...(typeof question.explanation === "string" && question.explanation.length > 0
+        ? { explanation: question.explanation }
+        : {}),
+    };
+  }
+  return { verdicts };
+}
+
 export async function submitAttempt({ repository, auth, input, maskedIp, now }) {
   requireAnonymousAuth(auth);
   const attemptId = validateAttemptId(input?.attemptId);
