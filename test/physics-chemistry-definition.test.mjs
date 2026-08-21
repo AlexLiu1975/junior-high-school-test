@@ -22,7 +22,7 @@ for (const paper of PAPERS) {
     const definition = getQuizDefinition(paper.id, 1);
     assert.ok(definition, "definition is registered");
     assert.equal(definition.kind, "multiple-choice");
-    assert.equal(definition.orderingPolicy, "permutation");
+    assert.equal(definition.orderingPolicy, "canonical");
     assert.equal(definition.resultReviewScope, "all");
     assert.equal(definition.subject, "PhysicsChemistry");
     assert.equal(definition.questions.length, paper.count);

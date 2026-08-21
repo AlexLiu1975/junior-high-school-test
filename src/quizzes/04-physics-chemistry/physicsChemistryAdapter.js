@@ -67,7 +67,15 @@ export function createPhysicsChemistryAdapter(content) {
 
   const adapter = Object.freeze({
     createAttempt({ random = Math.random, attemptId = crypto.randomUUID() } = {}) {
-      const questions = prepareQuiz(content.questions, random).map((question) => ({
+      const ordered = content.orderingPolicy === "permutation"
+        ? prepareQuiz(content.questions, random)
+        : content.questions.map((question) => ({
+          id: question.id,
+          n: question.n,
+          text: question.text,
+          options: question.options.map(({ id, text }) => ({ id, text })),
+        }));
+      const questions = ordered.map((question) => ({
         ...question,
         figureIds: Array.isArray(questionsById.get(question.id)?.figureIds)
           ? [...questionsById.get(question.id).figureIds]

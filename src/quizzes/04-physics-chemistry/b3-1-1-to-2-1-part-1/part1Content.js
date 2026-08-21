@@ -3,7 +3,7 @@ export const PHYSICS_CHEMISTRY_PART_1_CONTENT = {
   "id": "physics-chemistry-b3-1-1-to-2-1-part-1",
   "version": 1,
   "kind": "multiple-choice",
-  "orderingPolicy": "permutation",
+  "orderingPolicy": "canonical",
   "subject": "PhysicsChemistry",
   "title": "理化科 B3 1-1～2-1（壹）",
   "catalogDescription": "第三冊 1-1～2-1 綜合複習｜壹（40 題，每題 2.5 分，共 100 分）",

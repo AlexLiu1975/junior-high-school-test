@@ -4,7 +4,7 @@ export const PHYSICS_CHEMISTRY_PART_2 = {
   "id": "physics-chemistry-b3-1-1-to-2-1-part-2",
   "version": 1,
   "kind": "multiple-choice",
-  "orderingPolicy": "permutation",
+  "orderingPolicy": "canonical",
   "resultReviewScope": "all",
   "subject": "PhysicsChemistry",
   "title": "理化科 B3 1-1～2-1（貳）",
