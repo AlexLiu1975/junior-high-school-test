@@ -16,16 +16,20 @@ function canonicalMultipleChoiceOrder(definition) {
   };
 }
 
-test("catalog exposes three stable quizzes in display order", () => {
+test("catalog exposes the stable quizzes in display order", () => {
   assert.deepEqual(QUIZ_CATALOG.map((quiz) => quiz.id), [
     "biology-cell-microscope-1",
     "english-review-2",
     "periodic-table",
+    "physics-chemistry-b3-1-1-to-2-1-part-1",
+    "physics-chemistry-b3-1-1-to-2-1-part-2",
   ]);
   assert.deepEqual(QUIZ_CATALOG.map(({ kind }) => kind), [
     "multiple-choice",
     "multiple-choice",
     "placement",
+    "multiple-choice",
+    "multiple-choice",
   ]);
   assert.equal(QUIZ_CATALOG.find(({ id }) => id === "biology-cell-microscope-1").version, 2);
   assert.equal(QUIZ_CATALOG.every(({ version, subject, title, catalogDescription }) => (

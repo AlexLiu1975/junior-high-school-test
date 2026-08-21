@@ -1,0 +1,21 @@
+<svg style="max-width:100%;" viewbox="0 0 300 250" width="270" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arg4" markerheight="9" markerwidth="9" orient="auto" refx="6" refy="3"><path d="M0,0 L6,3 L0,6 Z" fill="#333"></path></marker></defs>
+<!-- axes -->
+<line marker-end="url(#arg4)" stroke="#333" stroke-width="2" x1="58.0" x2="285" y1="210.0" y2="210.0"></line>
+<line marker-end="url(#arg4)" stroke="#333" stroke-width="2" x1="58.0" x2="58.0" y1="210.0" y2="24"></line>
+<!-- axis labels -->
+<text font-size="15" x="34" y="40">M</text>
+<text font-size="14" x="20" y="60">（克）</text>
+<text font-size="14" x="250" y="236">V (cm³)</text>
+<text font-size="13" x="45" y="228">O</text>
+<!-- guide dashes to (11,10) on 甲 -->
+<line stroke="#333" stroke-dasharray="5 3" stroke-width="1.3" x1="170.0" x2="170.0" y1="210.0" y2="110.0"></line>
+<line stroke="#333" stroke-dasharray="5 3" stroke-width="1.3" x1="58.0" x2="170.0" y1="110.0" y2="110.0"></line>
+<text font-size="14" x="32" y="115.0">10</text>
+<text font-size="14" x="165.0" y="230">11</text>
+<!-- 甲 (steeper) and 乙 -->
+<line stroke="#111" stroke-width="3" x1="58.0" x2="215.8" y1="210.0" y2="69.1"></line>
+<line stroke="#111" stroke-width="3" x1="58.0" x2="231.1" y1="210.0" y2="93.1"></line>
+<text font-size="16" font-weight="bold" x="219.8" y="67.1">甲</text>
+<text font-size="16" font-weight="bold" x="235.1" y="91.1">乙</text>
+</svg>

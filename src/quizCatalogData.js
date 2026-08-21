@@ -31,4 +31,20 @@ export const QUIZ_CATALOG = deepFreeze([
     title: "化學元素週期表",
     catalogDescription: "118 個元素的位置、分類與符號練習",
   },
+  {
+    id: "physics-chemistry-b3-1-1-to-2-1-part-1",
+    version: 1,
+    kind: "multiple-choice",
+    subject: "PhysicsChemistry",
+    title: "理化科 B3 1-1～2-1（壹）",
+    catalogDescription: "第三冊 1-1～2-1 綜合複習｜壹（40 題，每題 2.5 分，共 100 分）",
+  },
+  {
+    id: "physics-chemistry-b3-1-1-to-2-1-part-2",
+    version: 1,
+    kind: "multiple-choice",
+    subject: "PhysicsChemistry",
+    title: "理化科 B3 1-1～2-1（貳）",
+    catalogDescription: "第三冊 1-1～2-1 綜合複習｜貳（25 題，每題 4 分，共 100 分）",
+  },
 ]);
