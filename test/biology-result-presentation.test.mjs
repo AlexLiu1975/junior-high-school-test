@@ -6,14 +6,14 @@ import { createServer } from "vite";
 import {
   biologyConfirmedReviewFailureMessage,
   biologyResultStatus,
-} from "../src/biologyResultPresentation.js";
+} from "../src/quizzes/01-biology/biologyResultPresentation.js";
 
 const vite = await createServer({
   appType: "custom",
   logLevel: "silent",
   server: { middlewareMode: true },
 });
-const biologyQuizModule = await vite.ssrLoadModule("/src/BiologyQuiz.jsx");
+const biologyQuizModule = await vite.ssrLoadModule("/src/quizzes/01-biology/BiologyQuiz.jsx");
 await vite.close();
 
 const answerReview = Array.from({ length: 20 }, (_, index) => {

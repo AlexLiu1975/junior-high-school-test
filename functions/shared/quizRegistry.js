@@ -1,11 +1,11 @@
 import {
   LEGACY_BIOLOGY_DEFINITIONS,
   QUIZ_DEFINITION as BIOLOGY_QUIZ,
-} from "./biologyDefinition.js";
-import { ENGLISH_REVIEW_2 } from "./englishReview2Definition.js";
+} from "./quizzes/01-biology/biologyDefinition.js";
+import { ENGLISH_REVIEW_2 } from "./quizzes/02-english/englishReview2Definition.js";
 import { validateMultipleChoiceSubmission } from "./multipleChoiceSubmission.js";
-import { PERIODIC_TABLE_QUIZ } from "./periodicTableDefinition.js";
-import { validatePeriodicSubmission } from "./periodicTableSubmission.js";
+import { PERIODIC_TABLE_QUIZ } from "./quizzes/03-periodic-table/periodicTableDefinition.js";
+import { validatePeriodicSubmission } from "./quizzes/03-periodic-table/periodicTableSubmission.js";
 
 function cloneDefinition(value) {
   if (Array.isArray(value)) return value.map(cloneDefinition);

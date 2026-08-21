@@ -4,7 +4,7 @@ import {
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_VERSION,
-} from "../functions/shared/biologyDefinition.js";
+} from "../functions/shared/quizzes/01-biology/biologyDefinition.js";
 import {
   getQuizDefinition,
   validateQuizSubmission,

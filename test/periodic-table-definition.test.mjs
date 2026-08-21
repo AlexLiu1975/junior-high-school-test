@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PERIODIC_TABLE_QUIZ } from "../functions/shared/periodicTableDefinition.js";
-import { validatePeriodicSubmission } from "../functions/shared/periodicTableSubmission.js";
+import { PERIODIC_TABLE_QUIZ } from "../functions/shared/quizzes/03-periodic-table/periodicTableDefinition.js";
+import { validatePeriodicSubmission } from "../functions/shared/quizzes/03-periodic-table/periodicTableSubmission.js";
 import {
   createPeriodicAttempt,
   pauseTimer,
   placeElement,
   resumeTimer,
-} from "../src/periodicTableDomain.js";
+} from "../src/quizzes/03-periodic-table/periodicTableDomain.js";
 
 const alwaysZero = () => 0;
 

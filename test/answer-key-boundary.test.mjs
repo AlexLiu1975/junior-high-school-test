@@ -31,8 +31,8 @@ function assertClientSafe(value, location = "root") {
 
 test("browser quiz content has no answer or explanation fields", async () => {
   const [{ BIOLOGY_QUIZ_CONTENT }, { ENGLISH_REVIEW_2_CONTENT }] = await Promise.all([
-    import("../src/biologyQuizContent.js"),
-    import("../src/englishReview2Content.js"),
+    import("../src/quizzes/01-biology/biologyQuizContent.js"),
+    import("../src/quizzes/02-english/englishReview2Content.js"),
   ]);
   assertClientSafe(BIOLOGY_QUIZ_CONTENT, "biology");
   assertClientSafe(ENGLISH_REVIEW_2_CONTENT, "english");
@@ -45,10 +45,10 @@ test("client-safe content stays aligned with the versioned server definitions", 
     { QUIZ_DEFINITION },
     { ENGLISH_REVIEW_2 },
   ] = await Promise.all([
-    import("../src/biologyQuizContent.js"),
-    import("../src/englishReview2Content.js"),
-    import("../functions/shared/biologyDefinition.js"),
-    import("../functions/shared/englishReview2Definition.js"),
+    import("../src/quizzes/01-biology/biologyQuizContent.js"),
+    import("../src/quizzes/02-english/englishReview2Content.js"),
+    import("../functions/shared/quizzes/01-biology/biologyDefinition.js"),
+    import("../functions/shared/quizzes/02-english/englishReview2Definition.js"),
   ]);
   const strip = (definition) => {
     const { resultReviewScope: _resultReviewScope, ...clientDefinition } = definition;

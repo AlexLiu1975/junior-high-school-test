@@ -10,9 +10,9 @@ import {
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_VERSION,
-} from "../shared/biologyDefinition.js";
-import { ENGLISH_REVIEW_2 } from "../shared/englishReview2Definition.js";
-import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
+} from "../shared/quizzes/01-biology/biologyDefinition.js";
+import { ENGLISH_REVIEW_2 } from "../shared/quizzes/02-english/englishReview2Definition.js";
+import { PERIODIC_TABLE_QUIZ } from "../shared/quizzes/03-periodic-table/periodicTableDefinition.js";
 
 const functionsEntrypoint = await import("../index.js");
 

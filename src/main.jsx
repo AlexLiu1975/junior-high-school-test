@@ -8,9 +8,9 @@ import StudentQuizShell from './StudentQuizShell.jsx'
 const route = resolveQuizRoute(window.location.search)
 const moduleLoader = route.mode === 'quiz'
   ? {
-      'biology-cell-microscope-1': () => import('./BiologyQuiz.jsx'),
-      'english-review-2': () => import('./EnglishReview2Quiz.jsx'),
-      'periodic-table': () => import('./PeriodicTableQuiz.jsx'),
+      'biology-cell-microscope-1': () => import('./quizzes/01-biology/BiologyQuiz.jsx'),
+      'english-review-2': () => import('./quizzes/02-english/EnglishReview2Quiz.jsx'),
+      'periodic-table': () => import('./quizzes/03-periodic-table/PeriodicTableQuiz.jsx'),
     }[route.quiz.id] ?? null
   : null
 const quizEntry = route.mode === 'catalog'

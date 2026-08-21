@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeQuizProgress } from "../progressDomain.js";
-import { ENGLISH_REVIEW_2 } from "../shared/englishReview2Definition.js";
-import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
+import { ENGLISH_REVIEW_2 } from "../shared/quizzes/02-english/englishReview2Definition.js";
+import { PERIODIC_TABLE_QUIZ } from "../shared/quizzes/03-periodic-table/periodicTableDefinition.js";
 import { requireStudentIdentity } from "../studentIdentity.js";
 
 const QUIZ_DEFINITION = {

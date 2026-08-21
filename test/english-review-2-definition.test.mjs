@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ENGLISH_REVIEW_2 } from "../functions/shared/englishReview2Definition.js";
-import { scoreEnglishReview2 } from "../functions/shared/englishReview2Scoring.js";
+import { ENGLISH_REVIEW_2 } from "../functions/shared/quizzes/02-english/englishReview2Definition.js";
+import { scoreEnglishReview2 } from "../functions/shared/quizzes/02-english/englishReview2Scoring.js";
 
 test("English Review 2 preserves forty questions and the original weighting", () => {
   assert.equal(ENGLISH_REVIEW_2.id, "english-review-2");

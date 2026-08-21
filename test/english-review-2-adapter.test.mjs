@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { englishReview2Adapter } from "../src/englishReview2Adapter.js";
+import { englishReview2Adapter } from "../src/quizzes/02-english/englishReview2Adapter.js";
 
 const savedAttempt = {
   attemptId: "english-saved-1",
