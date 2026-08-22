@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { biologyQuizAdapter } from "../src/biologyQuizAdapter.js";
-import * as submissionStatus from "../src/biologySubmissionStatus.js";
-import { QUIZ_DEFINITION } from "../functions/shared/biologyDefinition.js";
+import { biologyQuizAdapter } from "../src/quizzes/01-biology/biologyQuizAdapter.js";
+import * as submissionStatus from "../src/quizzes/01-biology/biologySubmissionStatus.js";
+import { QUIZ_DEFINITION } from "../functions/shared/quizzes/01-biology/biologyDefinition.js";
 
 function deepFreeze(value) {
   if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;

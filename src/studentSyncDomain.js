@@ -166,6 +166,17 @@ export function buildTrustedSubmissionRequest({ submission, credentials, identit
   };
 }
 
+export function buildTrustedGradeRequest({ answers, credentials, identity, quiz }) {
+  return {
+    studentCode: credentials.studentCode,
+    studentName: credentials.studentName,
+    studentId: identity.studentId,
+    quizId: quiz.id,
+    quizVersion: quiz.version,
+    answers: withoutRawIdentity(cloneSerializable(answers ?? {})),
+  };
+}
+
 export function buildTrustedProgressRequest({ progress, credentials, quiz }) {
   return {
     studentCode: credentials.studentCode,

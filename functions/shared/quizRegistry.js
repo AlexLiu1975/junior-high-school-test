@@ -1,11 +1,13 @@
 import {
   LEGACY_BIOLOGY_DEFINITIONS,
   QUIZ_DEFINITION as BIOLOGY_QUIZ,
-} from "./biologyDefinition.js";
-import { ENGLISH_REVIEW_2 } from "./englishReview2Definition.js";
+} from "./quizzes/01-biology/biologyDefinition.js";
+import { ENGLISH_REVIEW_2 } from "./quizzes/02-english/englishReview2Definition.js";
 import { validateMultipleChoiceSubmission } from "./multipleChoiceSubmission.js";
-import { PERIODIC_TABLE_QUIZ } from "./periodicTableDefinition.js";
-import { validatePeriodicSubmission } from "./periodicTableSubmission.js";
+import { PERIODIC_TABLE_QUIZ } from "./quizzes/03-periodic-table/periodicTableDefinition.js";
+import { validatePeriodicSubmission } from "./quizzes/03-periodic-table/periodicTableSubmission.js";
+import { PHYSICS_CHEMISTRY_PART_1 } from "./quizzes/04-physics-chemistry/b3-1-1-to-2-1-part-1/part1Definition.js";
+import { PHYSICS_CHEMISTRY_PART_2 } from "./quizzes/04-physics-chemistry/b3-1-1-to-2-1-part-2/part2Definition.js";
 
 function cloneDefinition(value) {
   if (Array.isArray(value)) return value.map(cloneDefinition);
@@ -29,6 +31,8 @@ const CURRENT_QUIZ_DEFINITIONS = deepFreeze([
   BIOLOGY_QUIZ,
   ENGLISH_REVIEW_2,
   PERIODIC_TABLE_QUIZ,
+  PHYSICS_CHEMISTRY_PART_1,
+  PHYSICS_CHEMISTRY_PART_2,
 ].map(cloneDefinition));
 
 const REGISTERED_QUIZ_DEFINITIONS = deepFreeze([

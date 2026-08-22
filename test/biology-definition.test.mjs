@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { QUIZ_DEFINITION } from "../functions/shared/biologyDefinition.js";
+import { QUIZ_DEFINITION } from "../functions/shared/quizzes/01-biology/biologyDefinition.js";
 
 test("Biology version 2 has one answer and one substantive explanation per question", () => {
   assert.equal(QUIZ_DEFINITION.version, 2);

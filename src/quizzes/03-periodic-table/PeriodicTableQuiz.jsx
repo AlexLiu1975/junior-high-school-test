@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PERIODIC_TABLE_QUIZ } from "../functions/shared/periodicTableDefinition.js";
+import { PERIODIC_TABLE_QUIZ } from "../../../functions/shared/quizzes/03-periodic-table/periodicTableDefinition.js";
 import { pauseTimer, placeElement, resumeTimer } from "./periodicTableDomain.js";
 import { periodicTableAdapter } from "./periodicTableAdapter.js";
 

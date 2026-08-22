@@ -3,12 +3,12 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { createServer } from "vite";
-import { QUIZ_DEFINITION } from "../functions/shared/biologyDefinition.js";
-import { biologyQuizAdapter } from "../src/biologyQuizAdapter.js";
+import { QUIZ_DEFINITION } from "../functions/shared/quizzes/01-biology/biologyDefinition.js";
+import { biologyQuizAdapter } from "../src/quizzes/01-biology/biologyQuizAdapter.js";
 import {
   finishBiologyQuizSubmission,
   recoverBiologyQuizSubmission,
-} from "../src/biologyQuizOrchestration.js";
+} from "../src/quizzes/01-biology/biologyQuizOrchestration.js";
 import { createQuizAttemptLifecycle } from "../src/quizAttemptLifecycle.js";
 
 const vite = await createServer({
@@ -16,7 +16,7 @@ const vite = await createServer({
   logLevel: "silent",
   server: { middlewareMode: true },
 });
-const biologyQuizModule = await vite.ssrLoadModule("/src/BiologyQuiz.jsx");
+const biologyQuizModule = await vite.ssrLoadModule("/src/quizzes/01-biology/BiologyQuiz.jsx");
 await vite.close();
 
 const questionOrder = QUIZ_DEFINITION.questions.map(({ id }) => id).reverse();

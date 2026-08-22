@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PERIODIC_TABLE_QUIZ } from "../functions/shared/periodicTableDefinition.js";
+import { PERIODIC_TABLE_QUIZ } from "../functions/shared/quizzes/03-periodic-table/periodicTableDefinition.js";
 import { normalizeQuizProgress } from "../functions/progressDomain.js";
-import { periodicTableAdapter } from "../src/periodicTableAdapter.js";
+import { periodicTableAdapter } from "../src/quizzes/03-periodic-table/periodicTableAdapter.js";
 
 const IDS = PERIODIC_TABLE_QUIZ.elements.map(({ id }) => id);
 

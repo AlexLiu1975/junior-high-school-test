@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  gradeAnswers,
   loadProgress,
   saveProgress,
   submitAttempt,
@@ -10,9 +11,9 @@ import {
   QUIZ_DEFINITION,
   QUIZ_ID,
   QUIZ_VERSION,
-} from "../shared/biologyDefinition.js";
-import { ENGLISH_REVIEW_2 } from "../shared/englishReview2Definition.js";
-import { PERIODIC_TABLE_QUIZ } from "../shared/periodicTableDefinition.js";
+} from "../shared/quizzes/01-biology/biologyDefinition.js";
+import { ENGLISH_REVIEW_2 } from "../shared/quizzes/02-english/englishReview2Definition.js";
+import { PERIODIC_TABLE_QUIZ } from "../shared/quizzes/03-periodic-table/periodicTableDefinition.js";
 
 const functionsEntrypoint = await import("../index.js");
 
@@ -21,6 +22,7 @@ test("every exported callable exposes the nam5-aligned endpoint metadata and res
     "loadStudentProgress",
     "saveStudentProgress",
     "submitQuizAttempt",
+    "gradeQuizAnswers",
     "removeOrDeactivateStudent",
   ]) {
     const endpoint = functionsEntrypoint[name]?.__endpoint;
@@ -229,7 +231,7 @@ test("anonymous authentication is required for every progress service", async ()
 });
 
 test("all student callable entrypoints reject unauthenticated requests", async () => {
-  for (const name of ["loadStudentProgress", "saveStudentProgress", "submitQuizAttempt"]) {
+  for (const name of ["loadStudentProgress", "saveStudentProgress", "submitQuizAttempt", "gradeQuizAnswers"]) {
     assert.equal(typeof functionsEntrypoint[name]?.run, "function");
     await assert.rejects(
       functionsEntrypoint[name].run({ auth: null, data: {}, rawRequest: {} }),
@@ -1311,4 +1313,103 @@ test("the same student cannot reuse an attemptId for a different quiz", async ()
   );
   assert.equal(repository.privateAttempts.size, 0);
   assert.equal(repository.progress.size, 0);
+});
+
+const Q1 = QUIZ_DEFINITION.questions[0];
+const Q1_CORRECT = Q1.options.find(({ correct }) => correct).id;
+const Q2 = QUIZ_DEFINITION.questions[1];
+
+function gradeInput(answers) {
+  return {
+    studentCode: STUDENT.studentCode,
+    studentName: STUDENT.studentName,
+    quizId: QUIZ_ID,
+    quizVersion: QUIZ_VERSION,
+    answers,
+  };
+}
+
+test("gradeAnswers requires anonymous authentication", async () => {
+  await assert.rejects(
+    gradeAnswers({
+      repository: createMemoryStudentRepository(),
+      auth: null,
+      input: gradeInput({ [Q1.id]: Q1_CORRECT }),
+    }),
+    /anonymous-auth-required/,
+  );
+});
+
+test("gradeAnswers returns per-question correctness, correct option and explanation without recording anything", async () => {
+  const repository = createMemoryStudentRepository();
+  const { verdicts } = await gradeAnswers({
+    repository,
+    auth: ANON_AUTH,
+    input: gradeInput({ [Q1.id]: Q1_CORRECT, [Q2.id]: Q2.options.find(({ correct }) => !correct).id }),
+  });
+
+  assert.deepEqual(verdicts[Q1.id], {
+    correct: true,
+    correctOptionId: Q1_CORRECT,
+    explanation: Q1.explanation,
+  });
+  assert.equal(verdicts[Q2.id].correct, false);
+  assert.equal(verdicts[Q2.id].correctOptionId, Q2.options.find(({ correct }) => correct).id);
+  // read-only: nothing persisted
+  assert.equal(repository.attempts.size, 0);
+  assert.equal(repository.privateAttempts.size, 0);
+  assert.equal(repository.progress.size, 0);
+  assert.equal(repository.transactionRuns, 0);
+});
+
+test("gradeAnswers verifies the student identity and active status", async () => {
+  await assert.rejects(
+    gradeAnswers({
+      repository: createMemoryStudentRepository({ inactiveStudents: [OTHER_STUDENT], approvedStudents: [] }),
+      auth: ANON_AUTH,
+      input: { ...gradeInput({ [Q1.id]: Q1_CORRECT }), ...OTHER_STUDENT },
+    }),
+    /student-inactive/,
+  );
+  await assert.rejects(
+    gradeAnswers({
+      repository: createMemoryStudentRepository(),
+      auth: ANON_AUTH,
+      input: { ...gradeInput({ [Q1.id]: Q1_CORRECT }), studentCode: "00000000-000", studentName: "查無此人" },
+    }),
+    /student-entry-not-found/,
+  );
+});
+
+test("gradeAnswers rejects unknown questions, invalid options, empty and oversized answer sets", async () => {
+  const repository = createMemoryStudentRepository();
+  const cases = [
+    { unknownQuestion: Q1_CORRECT },
+    { [Q1.id]: "not-an-option" },
+    {},
+    Object.fromEntries(QUIZ_DEFINITION.questions.map((q) => [q.id, q.options[0].id]).concat([["extra", "x"]])),
+  ];
+  for (const answers of cases) {
+    await assert.rejects(
+      gradeAnswers({ repository, auth: ANON_AUTH, input: gradeInput(answers) }),
+      /invalid-submission/,
+    );
+  }
+});
+
+test("gradeAnswers refuses non multiple-choice quizzes", async () => {
+  await assert.rejects(
+    gradeAnswers({
+      repository: createMemoryStudentRepository(),
+      auth: ANON_AUTH,
+      input: {
+        studentCode: STUDENT.studentCode,
+        studentName: STUDENT.studentName,
+        quizId: "periodic-table",
+        quizVersion: PERIODIC_TABLE_QUIZ.version,
+        answers: { anything: "x" },
+      },
+    }),
+    /invalid-submission/,
+  );
 });

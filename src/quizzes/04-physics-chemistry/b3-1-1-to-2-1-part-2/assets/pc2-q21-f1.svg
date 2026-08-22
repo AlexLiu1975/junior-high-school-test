@@ -1,0 +1,22 @@
+<svg style="max-width:100%;" viewbox="0 0 380 180" width="360" xmlns="http://www.w3.org/2000/svg">
+<!-- 步驟一 -->
+<text font-size="13" font-weight="bold" x="20" y="16">步驟一：空量筒</text>
+<rect fill="#bee3f8" height="70" stroke="#2b6cb0" stroke-width="1.5" width="24" x="55" y="60"></rect>
+<line stroke="#2b6cb0" x1="55" x2="66" y1="80" y2="80"></line><line stroke="#2b6cb0" x1="55" x2="66" y1="100" y2="100"></line><line stroke="#2b6cb0" x1="55" x2="66" y1="120" y2="120"></line>
+<rect fill="#2d3748" height="30" rx="4" width="90" x="30" y="130"></rect>
+<rect fill="#9ae6b4" height="18" rx="2" width="52" x="60" y="136"></rect>
+<text font-family="monospace" font-size="14" font-weight="bold" x="65" y="150">20.0g</text>
+<!-- arrow -->
+<line marker-end="url(#ar3)" stroke="#dd6b20" stroke-width="3" x1="150" x2="205" y1="100" y2="100"></line>
+<defs><marker id="ar3" markerheight="10" markerwidth="10" orient="auto" refx="7" refy="3.5"><path d="M0,0 L8,3.5 L0,7 Z" fill="#dd6b20"></path></marker></defs>
+<!-- 步驟二 -->
+<text font-size="13" font-weight="bold" x="230" y="16">步驟二：倒入某液體</text>
+<rect fill="#4299e1" height="75" stroke="#2b6cb0" stroke-width="1.5" width="26" x="270" y="55"></rect>
+<rect fill="#bee3f8" height="18" stroke="#2b6cb0" stroke-width="1.5" width="26" x="270" y="55"></rect>
+<line stroke="#1a365d" x1="270" x2="282" y1="73" y2="73"></line><text font-size="9" x="298" y="77">25.0</text>
+<line stroke="#1a365d" x1="270" x2="281" y1="93" y2="93"></line><text font-size="9" x="299" y="97">20</text>
+<line stroke="#1a365d" x1="270" x2="281" y1="113" y2="113"></line><text font-size="9" x="299" y="117">10</text>
+<rect fill="#2d3748" height="30" rx="4" width="90" x="245" y="130"></rect>
+<rect fill="#9ae6b4" height="18" rx="2" width="52" x="275" y="136"></rect>
+<text font-family="monospace" font-size="14" font-weight="bold" x="279" y="150">50.0g</text>
+</svg>

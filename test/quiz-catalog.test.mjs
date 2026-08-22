@@ -20,6 +20,15 @@ test("client catalog contains metadata only and has no server definition depende
     ["catalogDescription", "id", "kind", "subject", "title", "version"],
     ["catalogDescription", "id", "kind", "subject", "title", "version"],
     ["catalogDescription", "id", "kind", "subject", "title", "version"],
+    ["catalogDescription", "id", "kind", "subject", "title", "version"],
+    ["catalogDescription", "id", "kind", "subject", "title", "version"],
+  ]);
+  assert.deepEqual(QUIZ_CATALOG.map((quiz) => quiz.id), [
+    "biology-cell-microscope-1",
+    "english-review-2",
+    "periodic-table",
+    "physics-chemistry-b3-1-1-to-2-1-part-1",
+    "physics-chemistry-b3-1-1-to-2-1-part-2",
   ]);
 });
 

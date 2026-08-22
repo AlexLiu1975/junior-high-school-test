@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { biologyQuizAdapter } from "../src/biologyQuizAdapter.js";
-import { QUIZ_DEFINITION } from "../functions/shared/biologyDefinition.js";
+import { biologyQuizAdapter } from "../src/quizzes/01-biology/biologyQuizAdapter.js";
+import { QUIZ_DEFINITION } from "../functions/shared/quizzes/01-biology/biologyDefinition.js";
 
 const questionOrder = QUIZ_DEFINITION.questions.map(({ id }) => id).reverse();
 const optionOrder = Object.fromEntries(

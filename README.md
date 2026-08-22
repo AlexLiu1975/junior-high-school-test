@@ -47,12 +47,13 @@
 
 1. Authentication 啟用「匿名」與「Google」，Authorized domains 加入 `alexliu1975.github.io`。
 2. 建立位於 `nam5` 的 Firestore；Callable Functions 與其配對使用 `us-central1`。
-3. Callable Functions 固定使用 `us-central1`，四個名稱為：
+3. Callable Functions 固定使用 `us-central1`，五個名稱為：
    - `loadStudentProgress`
    - `saveStudentProgress`
    - `submitQuizAttempt`
+   - `gradeQuizAnswers`（理化即時判定用：唯讀、不寫入，只回傳單題對錯／正解／解析）
    - `removeOrDeactivateStudent`
-4. 四個 Callable 都設定 `maxInstances: 3`、逾時 30 秒、記憶體 256 MiB。
+4. 五個 Callable 都設定 `maxInstances: 3`、逾時 30 秒、記憶體 256 MiB。
 5. Spark 方案目前仍阻擋正式 Functions 部署；需升級至 Blaze 前，先取得明確核准、確認 Billing 已連結，並由擁有人依可承擔金額建立低額月預算警示（測試期可考慮 NT$100 或等值幣別、50%／90%／100% 通知）。警示不會自動停止服務，也不是硬性費用上限。
 6. Functions、Rules 與 indexes 是人工部署門檻；GitHub Actions 只會在全部驗證通過後自動發布 Pages，不會自動部署後端。
 
@@ -101,4 +102,4 @@ Emulator 固定連接埠：Auth `9099`、Firestore `8080`、Functions `5001`。�
 
 ## 人工部署檢核
 
-正式部署前由操作人員再次確認：專案 ID、Firestore `nam5`、與其配對的 `us-central1`、Blaze/Billing、四個 Callable、`maxInstances: 3`、Rules/indexes diff 與預算警示。Spark 方案下正式 Functions 部署仍遭阻擋；未取得明確升級與部署核准前，不要執行這些寫入操作。確認後才分別部署 Functions／Rules／indexes，再發布已審查的分支並執行三試卷公開 E2E。
+正式部署前由操作人員再次確認：專案 ID、Firestore `nam5`、與其配對的 `us-central1`、Blaze/Billing、五個 Callable（含新增的 `gradeQuizAnswers`）、`maxInstances: 3`、Rules/indexes diff 與預算警示。Spark 方案下正式 Functions 部署仍遭阻擋；未取得明確升級與部署核准前，不要執行這些寫入操作。確認後才分別部署 Functions／Rules／indexes，再發布已審查的分支並執行三試卷公開 E2E。

@@ -6,7 +6,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { QUIZ_CATALOG, getQuizDefinition } from "../shared/quizRegistry.js";
-import { periodicTableAdapter } from "../../src/periodicTableAdapter.js";
+import { periodicTableAdapter } from "../../src/quizzes/03-periodic-table/periodicTableAdapter.js";
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || "junior-high-school-test";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;

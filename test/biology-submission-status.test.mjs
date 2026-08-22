@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { biologyConfirmedReviewFailureMessage } from "../src/biologyResultPresentation.js";
-import { biologySubmissionFailureMessage } from "../src/biologySubmissionStatus.js";
+import { biologyConfirmedReviewFailureMessage } from "../src/quizzes/01-biology/biologyResultPresentation.js";
+import { biologySubmissionFailureMessage } from "../src/quizzes/01-biology/biologySubmissionStatus.js";
 
 test("biology distinguishes a failed submit from a confirmed result-display failure", () => {
   assert.equal(

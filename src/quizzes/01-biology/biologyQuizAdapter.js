@@ -1,5 +1,5 @@
 import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
-import { prepareQuiz } from "./quizRandomization.js";
+import { prepareQuiz } from "../../quizRandomization.js";
 
 const questionsById = new Map(
   BIOLOGY_QUIZ_CONTENT.questions.map((question) => [question.id, question]),

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { createQuizAttemptLifecycle } from "./quizAttemptLifecycle";
+import { createQuizAttemptLifecycle } from "../../quizAttemptLifecycle";
 import { BIOLOGY_QUIZ_CONTENT } from "./biologyQuizContent.js";
 import { biologyQuizAdapter } from "./biologyQuizAdapter.js";
 import {

@@ -1,4 +1,4 @@
-import { PERIODIC_TABLE_QUIZ } from "../functions/shared/periodicTableDefinition.js";
+import { PERIODIC_TABLE_QUIZ } from "../../../functions/shared/quizzes/03-periodic-table/periodicTableDefinition.js";
 import { createPeriodicAttempt } from "./periodicTableDomain.js";
 
 const MAX_ERROR_COUNT = 100_000;

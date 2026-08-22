@@ -1,0 +1,15 @@
+<svg style="max-width:100%;" viewbox="0 0 200 170" width="180" xmlns="http://www.w3.org/2000/svg">
+<path d="M80,55 L80,30 L120,30 L120,55 L150,150 Q150,158 142,158 L58,158 Q50,158 50,150 Z" fill="#e6fffa" stroke="#2b6cb0" stroke-width="2"></path>
+<path d="M62,110 L138,110 L150,150 Q150,158 142,158 L58,158 Q50,158 50,150 Z" fill="#81e6d9" stroke="none"></path>
+<rect fill="#a0aec0" height="8" rx="2" width="40" x="80" y="24"></rect>
+<!-- 茶包 -->
+<rect fill="#744210" height="20" rx="2" width="16" x="92" y="60"></rect>
+<line stroke="#744210" stroke-width="1.5" x1="100" x2="100" y1="60" y2="34"></line>
+<!-- 噴泉 -->
+<circle cx="100" cy="16" fill="#4fd1c5" r="4"></circle>
+<circle cx="88" cy="24" fill="#4fd1c5" r="3"></circle>
+<circle cx="112" cy="24" fill="#4fd1c5" r="3"></circle>
+<circle cx="80" cy="34" fill="#4fd1c5" r="2.5"></circle>
+<circle cx="120" cy="34" fill="#4fd1c5" r="2.5"></circle>
+<text font-size="18" x="128" y="80">💨</text>
+</svg>
