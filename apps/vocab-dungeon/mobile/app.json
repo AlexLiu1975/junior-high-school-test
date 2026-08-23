@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "單字地城｜康軒英文",
+    "slug": "vocab-dungeon-kanghsuan",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "scheme": "vocabdungeon",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#10182F"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vocabdungeon.kanghsuan"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#10182F"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.vocabdungeon.kanghsuan"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
