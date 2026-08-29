@@ -41,11 +41,12 @@ npm --prefix functions ci
 # 部署前驗證
 if [ "${SKIP_VERIFY}" = "1" ]; then
   echo "⚠ 已略過 npm run verify（SKIP_VERIFY=1）；請確認 PR 的 CI 已全綠。"
-elif command -v java >/dev/null 2>&1; then
+elif java -version >/dev/null 2>&1; then
+  # 用實際執行 java -version 判斷（macOS 只有 java 空殼時 command -v 會誤判為有 Java）。
   echo "▶ 執行完整驗證 npm run verify（含 emulator＋Firestore 規則測試）…"
   npm run verify
 else
-  echo "⚠ 找不到 Java 21，無法在本機跑 emulator／規則測試；改跑單元測試＋lint＋build。"
+  echo "⚠ 找不到可用的 Java（Java 21），無法在本機跑 emulator／規則測試；改跑單元測試＋lint＋build。"
   echo "  （完整 emulator／規則測試以 GitHub Actions CI 為準）"
   npm test
   npm run test:functions
